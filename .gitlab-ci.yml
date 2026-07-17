@@ -1,9 +1,10 @@
 # ═══════════════════════════════════════════════════
 # Void Browser — GitLab CI/CD Pipeline
-# Build, test, package, and deploy
+# Lint, build, package, deploy — fully automated
 # ═══════════════════════════════════════════════════
 
 stages:
+  - prepare
   - lint
   - build
   - package
@@ -13,18 +14,45 @@ variables:
   CARGO_HOME: /tmp/cargo
   RUST_BACKTRACE: "1"
 
+# ── Download Filter Lists ─────────────────────────
+
+prepare-filters:
+  stage: prepare
+  image: alpine:latest
+  script:
+    - apk add --no-cache curl
+    - cd filters
+    - echo "Downloading full EasyList..."
+    - curl -sL "https://easylist.to/easylist/easylist.txt" -o easylist-full.txt
+    - echo "Downloading full EasyPrivacy..."
+    - curl -sL "https://easylist.to/easylist/easyprivacy.txt" -o easyprivacy-full.txt
+    - wc -l easylist-full.txt easyprivacy-full.txt
+  artifacts:
+    paths:
+      - filters/easylist-full.txt
+      - filters/easyprivacy-full.txt
+    expire_in: 7 days
+  only:
+    - main
+    - tags
+    - merge_requests
+
 # ── Lint & Check ──────────────────────────────────
 
 lint:
   stage: lint
   image: rust:1.80
+  needs: ["prepare-filters"]
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
   script:
     - cd src-tauri
     - rustup component add clippy rustfmt
     - cargo fmt --check
     - cargo clippy -- -D warnings
   cache:
-    key: rust-cache
+    key: rust-lint-cache
     paths:
       - src-tauri/target/
   only:
@@ -36,10 +64,10 @@ lint:
 build-linux:
   stage: build
   image: rust:1.80
+  needs: ["prepare-filters"]
   before_script:
     - apt-get update -qq
     - apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
-    - cargo install tauri-cli --version "^2"
   script:
     - cd src-tauri
     - cargo build --release
@@ -55,7 +83,7 @@ build-linux:
     - main
     - tags
 
-# ── Package (Linux) ──────────────────────────────
+# ── Package (Linux — .deb + .AppImage) ───────────
 
 package-linux:
   stage: package
@@ -71,36 +99,40 @@ package-linux:
     paths:
       - src-tauri/target/release/bundle/deb/*.deb
       - src-tauri/target/release/bundle/appimage/*.AppImage
-    expire_in: 30 days
+    expire_in: 90 days
   only:
     - tags
 
-# ── Deploy Website ───────────────────────────────
+# ── Deploy Website (auto on main push) ───────────
 
 deploy-site:
   stage: deploy-site
-  image: docker:latest
-  services:
-    - docker:dind
-  variables:
-    DOCKER_HOST: tcp://docker:2375
+  image: alpine:latest
+  needs: []
+  before_script:
+    - apk add --no-cache openssh-client docker-cli
+    - mkdir -p ~/.ssh
+    - echo "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+    - chmod 600 ~/.ssh/id_ed25519
+    - ssh-keyscan -p 22 $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
   script:
-    - cd website
-    - docker build -t void-website .
-    # Deploy to Unraid
+    - echo "Deploying Void website to $DEPLOY_HOST..."
+    # Copy website files
+    - scp -o StrictHostKeyChecking=no website/index.html website/style.css website/Dockerfile root@$DEPLOY_HOST:/mnt/user/appdata/lightfootcloud/websites/void-browser/
+    # Build and deploy container
     - |
-      ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no root@$DEPLOY_HOST "
-        docker stop void-website 2>/dev/null || true
-        docker rm void-website 2>/dev/null || true
-      "
-    - docker save void-website | ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no root@$DEPLOY_HOST 'docker load'
-    - |
-      ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no root@$DEPLOY_HOST "
+      ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "
+        cd /mnt/user/appdata/lightfootcloud/websites/void-browser && \
+        docker build -t void-website . && \
+        docker stop void-website 2>/dev/null || true && \
+        docker rm void-website 2>/dev/null || true && \
         docker run -d --name void-website --restart unless-stopped \
           -p 5080:80 \
           --network proxynet \
-          void-website
+          void-website && \
+        echo 'Website deployed successfully'
       "
   only:
     - main
-  when: manual
+  variables:
+    DEPLOY_HOST: "10.0.0.10"

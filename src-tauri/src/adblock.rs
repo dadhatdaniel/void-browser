@@ -35,15 +35,15 @@ impl AdBlocker {
 
         // Load built-in filter lists
         if config.adblock_enabled {
-            // EasyList — ad blocking
-            let easylist = include_str!("../../filters/easylist-minimal.txt");
+            // EasyList — ad blocking (full list if available, minimal fallback)
+            let easylist = include_str!("../../filters/easylist-full.txt");
             filter_set.add_filters(
                 &easylist.lines().map(|s| s.to_string()).collect::<Vec<_>>(),
                 ParseOptions::default(),
             );
 
-            // Privacy filters — tracker blocking
-            let privacy = include_str!("../../filters/privacy-filters.txt");
+            // EasyPrivacy — tracker blocking (full list)
+            let privacy = include_str!("../../filters/easyprivacy-full.txt");
             filter_set.add_filters(
                 &privacy.lines().map(|s| s.to_string()).collect::<Vec<_>>(),
                 ParseOptions::default(),
