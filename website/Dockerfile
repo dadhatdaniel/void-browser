@@ -63,8 +63,8 @@ server {
 
     # Explicit PWA manifests — correct type (CF often challenges *.webmanifest; prefer /manifest.json)
     location = /manifest.json {
+        types { }
         default_type application/manifest+json;
-        add_header Content-Type "application/manifest+json" always;
         add_header Cache-Control "public, max-age=86400" always;
         add_header X-Content-Type-Options "nosniff" always;
         add_header Cross-Origin-Resource-Policy "cross-origin" always;
