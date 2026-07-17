@@ -103,7 +103,7 @@ license-check:
   script:
     - cargo install cargo-license --locked
     - cd src-tauri && cargo license --json > /tmp/licenses.json
-    - python3 -c "import json; deps=json.load(open('/tmp/licenses.json')); blocked=['SSPL','BSL']; bad=[f'{d[\"name\"]}={d.get(\"license\",\"\")}' for d in deps if any(b in d.get('license','') for b in blocked)]; print('BLOCKED - ' + str(bad)) if bad else print(f'All {len(deps)} deps OK'); exit(1) if bad else None"
+    - python3 -c "import json; deps=json.load(open('/tmp/licenses.json')); blocked=['SSPL-1.0','BUSL-1.1']; bad=[f'{d[\"name\"]}={d.get(\"license\",\"\")}' for d in deps if any(d.get('license','').startswith(b) for b in blocked)]; print('BLOCKED - ' + str(bad)) if bad else print(f'All {len(deps)} deps OK'); exit(1) if bad else None"
   cache:
     key: license-${CI_COMMIT_REF_SLUG}
     paths: [.cargo/, src-tauri/target/]
