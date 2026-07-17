@@ -16,7 +16,7 @@
 #
 #   4. PACKAGE (tags only — creates downloadable installers)
 #      - package-linux  → .deb (Debian/Ubuntu) + .AppImage (universal Linux)
-#      - package-windows→ .msi + .exe via cargo-xwin cross-compilation
+#      (Windows + macOS builds run on GitHub Actions — free native runners)
 #
 #   5. RELEASE (tags only)
 #      - release        → Creates GitLab Release with download links
@@ -187,42 +187,6 @@ package-linux:
       when: manual
       allow_failure: true
 
-package-windows:
-  stage: package
-  image: "${RUST_IMAGE}"
-  needs:
-    - job: build-linux
-      artifacts: true
-  before_script:
-    - apt-get update -qq && apt-get install -y -qq nsis nsis-pluginapi file
-    - rustup target add x86_64-pc-windows-msvc
-    - cargo install cargo-xwin --locked
-    - cargo install tauri-cli --version "^2" --locked
-  script:
-    - echo "=== Cross-compiling Windows packages (.msi + .exe) ==="
-    - cargo tauri build --target x86_64-pc-windows-msvc
-    - echo ""
-    - echo "=== Package inventory ==="
-    - find src-tauri/target/x86_64-pc-windows-msvc/release/bundle -type f \( -name '*.msi' -o -name '*.exe' \) -exec ls -lh {} \;
-    - echo ""
-    - echo "=== Package checksums ==="
-    - find src-tauri/target/x86_64-pc-windows-msvc/release/bundle -type f \( -name '*.msi' -o -name '*.exe' \) -exec sha256sum {} \;
-  artifacts:
-    name: "void-browser-${CI_COMMIT_TAG}-windows"
-    paths:
-      - src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/
-      - src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/
-    expire_in: 90 days
-  cache:
-    key: package-win-${CI_COMMIT_REF_SLUG}
-    paths: [.cargo/, src-tauri/target/]
-  allow_failure: true
-  rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_COMMIT_BRANCH == "main"
-      when: manual
-      allow_failure: true
-
 
 # ══════════════════════════════════════════════════
 # STAGE 5: RELEASE — Create GitLab release with download links
@@ -234,9 +198,7 @@ release:
   needs:
     - job: package-linux
       artifacts: true
-    - job: package-windows
-      artifacts: true
-      optional: true
+
 
   script:
     - echo "=== Creating Release ${CI_COMMIT_TAG} ==="
@@ -258,9 +220,7 @@ release:
         - name: "Linux (.AppImage) — Universal"
           url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/download?job=package-linux"
           link_type: "package"
-        - name: "Windows (.msi + .exe)"
-          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/download?job=package-windows"
-          link_type: "package"
+
   rules:
     - if: $CI_COMMIT_TAG
 

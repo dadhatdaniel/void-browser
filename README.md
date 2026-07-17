@@ -2,7 +2,14 @@
 
 **No tracking. No AI. Just browsing.**
 
+🌐 **[void.lightfoot.cloud](https://void.lightfoot.cloud)** — Official Website
+
 A minimal, secure, privacy-first web browser built with [Tauri](https://tauri.app) and Rust.
+
+[![Build macOS & Windows](https://github.com/dadhatdaniel/void-browser/actions/workflows/build-macos.yml/badge.svg)](https://github.com/dadhatdaniel/void-browser/actions/workflows/build-macos.yml)
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL%203.0-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+
+---
 
 ## Why Void?
 
@@ -10,25 +17,46 @@ Every major browser has become a platform for surveillance, advertising, or feat
 
 Void has none of that. It's a browser. It browses. That's it.
 
+**Built for people who believe the internet should work for them, not against them.**
+
+## Downloads
+
+Get the latest release for your platform:
+
+| Platform | Format | Where |
+|----------|--------|-------|
+| 🐧 **Linux** | `.deb`, `.AppImage` | [GitLab Releases](https://void.lightfoot.cloud) |
+| 🪟 **Windows** | `.msi`, `.exe` | [GitHub Releases](https://github.com/dadhatdaniel/void-browser/releases) |
+| 🍎 **macOS** | `.dmg` | [GitHub Releases](https://github.com/dadhatdaniel/void-browser/releases) |
+
+All releases include SHA-256 checksums. Verify your download:
+```bash
+sha256sum --check CHECKSUMS.sha256   # Linux
+shasum -a 256 --check CHECKSUMS.sha256  # macOS
+```
+
 ## Features
 
-- 🛡️ **Built-in ad blocker** — Powered by adblock-rust (same engine as Brave)
+- 🛡️ **Built-in ad blocker** — Powered by adblock-rust (same engine as Brave), 137K+ filter rules
 - 🔒 **HTTPS-only mode** — Insecure connections blocked by default
 - 👻 **Anti-fingerprinting** — Canvas, WebGL, AudioContext resistance
 - 🚫 **Zero telemetry** — Nothing leaves your machine. Ever.
 - ⚡ **Tiny footprint** — Under 10MB, uses native OS webview
 - 🎨 **Customizable** — Dark/Light/Midnight themes, custom CSS, configurable keybinds
 - 🔐 **DNS over HTTPS** — Quad9, Cloudflare, or Mullvad built in
-- 📋 **Local config** — Plain TOML file, no cloud, no account
+- 🌐 **WebRTC leak protection** — Prevents IP leaks even with VPNs
 
 ## What we don't have
 
-- ✕ AI assistant
-- ✕ Cryptocurrency wallet
-- ✕ Cloud sync / accounts
-- ✕ Telemetry / analytics
-- ✕ News feed / sponsored shortcuts
-- ✕ VPN upsell
+| ✕ | Feature we'll never add |
+|---|---|
+| ✕ | AI assistant |
+| ✕ | Cryptocurrency wallet |
+| ✕ | Cloud sync / accounts |
+| ✕ | Telemetry / analytics |
+| ✕ | News feed / sponsored shortcuts |
+| ✕ | VPN upsell |
+| ✕ | Social features |
 
 ## Security Levels
 
@@ -38,52 +66,48 @@ Void has none of that. It's a browser. It browses. That's it.
 | **Strict** (default) | + Third-party cookie blocking, WebRTC leak prevention, fingerprint resistance |
 | **Paranoid** | + Full fingerprint resistance, JS disabled by default, timezone spoofing |
 
-## Building
+## Building from Source
 
 ### Prerequisites
 
-- [Rust](https://rustup.rs) 1.70+
+- [Rust](https://rustup.rs) 1.85+
 - [Tauri CLI](https://tauri.app/start/create-project/) v2
 - Platform dependencies:
   - **Linux**: `libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev`
   - **macOS**: Xcode Command Line Tools
   - **Windows**: WebView2 (pre-installed on Windows 10/11)
 
-### Development
+### Build
 
 ```bash
-# Install Tauri CLI
 cargo install tauri-cli --version "^2"
-
-# Run in development mode
-cargo tauri dev
-
-# Build for production
-cargo tauri build
+cargo tauri dev    # Development
+cargo tauri build  # Production
 ```
 
-### Build output
+### Build Output
 
-- **Linux**: `.deb` and `.AppImage` in `src-tauri/target/release/bundle/`
-- **macOS**: `.dmg` in `src-tauri/target/release/bundle/`
-- **Windows**: `.msi` and `.exe` in `src-tauri/target/release/bundle/`
+| Platform | Artifacts |
+|----------|-----------|
+| Linux | `src-tauri/target/release/bundle/deb/`, `appimage/` |
+| macOS | `src-tauri/target/release/bundle/dmg/` |
+| Windows | `src-tauri/target/release/bundle/msi/`, `nsis/` |
 
 ## Configuration
 
-Void stores its config in a local TOML file:
+Void stores config in a local TOML file — no cloud, no account:
 
-- **Linux**: `~/.config/void-browser/config.toml`
-- **macOS**: `~/Library/Application Support/void-browser/config.toml`
-- **Windows**: `%APPDATA%/void-browser/config.toml`
+| OS | Path |
+|----|------|
+| Linux | `~/.config/void-browser/config.toml` |
+| macOS | `~/Library/Application Support/void-browser/config.toml` |
+| Windows | `%APPDATA%/void-browser/config.toml` |
 
 ```toml
-# Example config
 homepage = "void://newtab"
 search_engine = "DuckDuckGo"
 theme = "Dark"
 adblock_enabled = true
-tracker_blocking = true
-https_policy = "Strict"
 security_level = "Strict"
 
 [fingerprint_resistance]
@@ -96,47 +120,41 @@ spoof_audio = true
 
 ```
 void-browser/
-├── src-tauri/          # Rust backend (Tauri)
-│   ├── src/
-│   │   ├── main.rs     # Entry point & Tauri commands
-│   │   ├── adblock.rs  # Ad & tracker blocking engine
-│   │   ├── privacy.rs  # Privacy hardening & fingerprint resistance
-│   │   ├── config.rs   # User configuration (TOML)
-│   │   └── tabs.rs     # Tab management
-│   └── Cargo.toml
-├── src/                # Frontend (HTML/CSS/JS)
-│   ├── index.html      # Browser chrome UI
-│   ├── style.css       # Themes & styling
-│   └── app.js          # Tab/navigation controller
-├── filters/            # Ad & tracker filter lists
-├── website/            # Landing page
-└── .gitlab-ci.yml      # CI/CD pipeline
+├── src-tauri/           # Rust backend (Tauri)
+│   └── src/
+│       ├── main.rs      # Entry point & commands
+│       ├── adblock.rs   # Ad & tracker blocking (adblock-rust)
+│       ├── privacy.rs   # Privacy hardening & fingerprint resistance
+│       ├── config.rs    # User configuration (TOML)
+│       └── tabs.rs      # Tab management
+├── src/                 # Frontend (HTML/CSS/JS)
+├── filters/             # Ad & tracker filter lists
+├── website/             # Landing page (void.lightfoot.cloud)
+├── .gitlab-ci.yml       # GitLab CI — Linux builds + security + deploy
+└── .github/workflows/   # GitHub Actions — macOS + Windows builds
 ```
+
+## CI/CD
+
+| Platform | What it builds | Trigger |
+|----------|---------------|---------|
+| **GitLab** (internal) | Linux `.deb` + `.AppImage`, security scans, website deploy | Every push + tags |
+| **GitHub Actions** | macOS `.dmg` + Windows `.msi`/`.exe` | Tags only |
+
+## Security
+
+- **Signed releases** — SHA-256 checksums on all packages
+- **Dependency auditing** — `cargo audit` on every build
+- **License compliance** — Automated scanning
+- **Zero tracking website** — [void.lightfoot.cloud](https://void.lightfoot.cloud) uses no cookies, no analytics, no tracking
+- **AI scraping prevention** — robots.txt blocks 25+ AI crawlers, TDM reservation protocol
 
 ## License
 
-GPL-3.0 — Free as in freedom.
+[GPL-3.0](LICENSE) — Free as in freedom.
 
 ---
 
 *Built by [Daniel Lightfoot](https://lightfoot.cloud). No VC. No telemetry. No bullshit.*
 
-## Security
-
-Void takes security seriously:
-
-- **Signed releases** — All packages include SHA-256 checksums and GPG signatures
-- **Dependency auditing** — `cargo audit` runs on every build to catch known CVEs
-- **License compliance** — Automated license scanning ensures no incompatible dependencies
-- **Binary verification** — Post-build checks verify RELRO, stripped symbols, and linked libraries
-- **No tracking on the website** — The Void website uses zero cookies, zero analytics, and zero tracking scripts. We verify this in CI.
-- **Hardened container** — The website runs read-only with dropped capabilities and memory limits
-
-To verify a download:
-```bash
-# Check file integrity
-sha256sum --check CHECKSUMS.sha256
-
-# Verify GPG signature
-gpg --verify CHECKSUMS.sha256.asc
-```
+*Website: [void.lightfoot.cloud](https://void.lightfoot.cloud) · Source: [GitHub](https://github.com/dadhatdaniel/void-browser)*
