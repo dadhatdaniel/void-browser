@@ -11,7 +11,7 @@ use crate::config::VoidConfig;
 use crate::privacy::BLOCKED_TELEMETRY_DOMAINS;
 
 /// Stats tracked per session
-#[derive(Serialize, Default)]
+#[derive(Clone, Serialize, Default)]
 pub struct BlockStats {
     pub total_checked: u64,
     pub total_blocked: u64,

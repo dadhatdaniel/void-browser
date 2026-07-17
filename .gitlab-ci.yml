@@ -20,6 +20,7 @@ stages:
   - security
   - scan
   - deploy-site
+  - e2e
 
 variables:
   CARGO_HOME: "${CI_PROJECT_DIR}/.cargo"
@@ -103,6 +104,7 @@ virus-scan:
   timeout: 2h
   needs: []
   variables:
+    # Bump when a newer GitHub Release exists with assets (alpha.4 build failed; keep alpha.3 until alpha.5+)
     VT_RELEASE_TAG: "v0.1.0-alpha.3"
     VT_WEBSITE_URL: "https://void.lightfoot.cloud"
   script:
@@ -164,3 +166,56 @@ deploy-site:
       allow_failure: true
   variables:
     DEPLOY_HOST: "10.0.0.10"
+
+# ── SITE E2E SMOKE (every main push) ─────────────
+# Hits the live container on the deploy host (:5080). Cloudflare may challenge
+# https://void.lightfoot.cloud for bots — CI uses the origin port instead.
+
+site-e2e:
+  stage: e2e
+  image: alpine:latest
+  needs:
+    - job: deploy-site
+      optional: true
+  before_script:
+    - apk add --no-cache curl jq
+  script:
+    - |
+      set -eu
+      BASE="${SITE_E2E_BASE:-http://10.0.0.10:5080}"
+      echo "=== Site E2E against $BASE ==="
+      for path in / /manifest.json /releases.json /scan-results.json /robots.txt /sitemap.xml /style.css /favicon.ico; do
+        code=$(curl -sS -o /tmp/e2e-body -w '%{http_code}' "$BASE$path" || echo "000")
+        echo "$code $path"
+        test "$code" = "200"
+      done
+      curl -sf "$BASE/releases.json" -o /tmp/releases.json
+      jq -e '.tag and .assets' /tmp/releases.json >/dev/null
+      jq -r '.assets | to_entries[] | .value.url' /tmp/releases.json > /tmp/download-urls.txt
+      while IFS= read -r url; do
+        [ -z "$url" ] && continue
+        code=$(curl -sS -I -L -o /dev/null -w '%{http_code}' --max-time 60 "$url" || echo "000")
+        echo "$code download $url"
+        echo "$code" | grep -Eq '^(200|302)$'
+      done < /tmp/download-urls.txt
+      curl -sf "$BASE/scan-results.json" -o /tmp/scan.json
+      jq -e '.status and (.website or .artifacts)' /tmp/scan.json >/dev/null
+      status=$(jq -r '.status' /tmp/scan.json)
+      echo "scan-results status=$status"
+      if [ "$status" = "pending" ]; then
+        echo "WARNING: scan-results still pending (VT key missing or scan not run)"
+      else
+        jq -e '(.website.total // 0) > 0 or ((.artifacts // []) | length) > 0' /tmp/scan.json >/dev/null
+        echo "VT scores present"
+      fi
+      curl -sf "$BASE/" -o /tmp/index.html
+      if grep -Eiq '<script[^>]*google-analytics|googletagmanager' /tmp/index.html; then
+        echo 'TRACKING FOUND'
+        exit 1
+      fi
+      echo 'No tracking scripts'
+      echo "=== Site E2E PASSED ==="
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  variables:
+    SITE_E2E_BASE: "http://10.0.0.10:5080"

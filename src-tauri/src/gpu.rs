@@ -54,7 +54,9 @@ pub fn configure_hardware_acceleration() {
     {
         let software = std::env::var_os("VOID_SOFTWARE_RENDERING").is_some();
         if software {
-            eprintln!("[void] WebKitGTK: VOID_SOFTWARE_RENDERING set — leaving compositing defaults");
+            eprintln!(
+                "[void] WebKitGTK: VOID_SOFTWARE_RENDERING set — leaving compositing defaults"
+            );
         } else {
             unsafe {
                 std::env::remove_var("WEBKIT_DISABLE_COMPOSITING_MODE");

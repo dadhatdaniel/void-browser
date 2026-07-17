@@ -142,8 +142,19 @@ void-browser/
 
 | Platform | What it builds | Trigger |
 |----------|---------------|---------|
-| **GitLab** (internal) | Linux `.deb` + `.AppImage`, security scans, website deploy | Every push + tags |
-| **GitHub Actions** | macOS `.dmg` + Windows `.msi`/`.exe` | Tags only |
+| **GitLab** (internal) | Lint, audit, license check, VirusTotal scan, website deploy, **site E2E smoke** | Every `main` push (+ tags for scan) |
+| **GitHub Actions** | Linux/Windows/macOS installers (`.deb`, `.AppImage`, `.msi`, `.exe`, `.dmg`) | Tags `v*` only |
+
+Source of truth is GitLab (`lightfootcloud/void-browser`). Do not push releases from this workspace to GitHub — the mirror handles it.
+
+### Windows `.exe` smoke (manual)
+
+After a green **Build & Release** for a new tag:
+
+1. Download `Void.Browser_*_x64-setup.exe` (or `.msi`) from the GitHub Release.
+2. Verify SHA-256 against the release notes / checksums.
+3. Install, launch Void, confirm: new tab, navigate to `https://example.com`, back/forward/reload, open Settings and toggle a preference, quit and relaunch (settings persist).
+4. Expect SmartScreen / AV warnings on unsigned builds — see [docs/CODE_SIGNING.md](docs/CODE_SIGNING.md).
 
 ## Security
 

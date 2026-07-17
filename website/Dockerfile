@@ -20,23 +20,9 @@ COPY tdmrep.json /usr/share/nginx/html/.well-known/tdmrep.json
 
 # Security-hardened nginx config — we practice what we preach
 RUN cat > /etc/nginx/conf.d/default.conf << 'EOF'
-# Correct MIME for PWA manifest (alpine default is often octet-stream)
+# Only extend MIME map — full types{} redefines defaults and spams duplicate-extension warnings
 types {
-    text/html                                        html htm shtml;
-    text/css                                         css;
-    text/xml                                         xml;
-    image/gif                                        gif;
-    image/jpeg                                       jpeg jpg;
-    image/png                                        png;
-    image/svg+xml                                    svg svgz;
-    image/x-icon                                     ico;
-    application/javascript                           js;
-    application/json                                 json;
     application/manifest+json                        webmanifest;
-    application/wasm                                 wasm;
-    font/woff                                        woff;
-    font/woff2                                       woff2;
-    text/plain                                       txt;
 }
 
 server {

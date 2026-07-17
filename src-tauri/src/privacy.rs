@@ -79,10 +79,10 @@ pub const BLOCKED_TELEMETRY_DOMAINS: &[&str] = &[
 
 #[derive(Clone, Default, Serialize, serde::Deserialize, PartialEq, Eq)]
 pub enum WebRtcPolicy {
-    Default,
+    Default, // Allow WebRTC (may leak local IP)
     #[default]
-    DisableNonProxied,
-    Disabled,
+    DisableNonProxied, // Only allow through proxy/VPN
+    Disabled, // Fully disable WebRTC
 }
 
 #[derive(Clone, Serialize, serde::Deserialize, PartialEq)]
