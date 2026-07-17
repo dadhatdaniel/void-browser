@@ -4,10 +4,75 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Void Browser — No tracking. No AI. Just browsing.</title>
-  <meta name="description" content="A minimal, secure, privacy-first web browser. Built by one person. No VC. No telemetry. No bullshit.">
-  <meta property="og:title" content="Void Browser">
-  <meta property="og:description" content="No tracking. No AI. Just browsing.">
+  <meta name="description" content="Void is a minimal, secure, privacy-first web browser built with Rust. No tracking, no AI, no telemetry. Built-in ad blocker, fingerprint resistance, and HTTPS-only mode. Under 10MB.">
+  <meta name="keywords" content="privacy browser, secure browser, no tracking, ad blocker, minimal browser, rust browser, open source browser, private browsing, anti fingerprinting">
+  <meta name="author" content="Daniel Lightfoot">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://void.lightfoot.cloud/">
+
+  <!-- Open Graph -->
   <meta property="og:type" content="website">
+  <meta property="og:url" content="https://void.lightfoot.cloud/">
+  <meta property="og:title" content="Void Browser — No tracking. No AI. Just browsing.">
+  <meta property="og:description" content="A minimal, secure, privacy-first web browser built with Rust. Built-in ad blocker, fingerprint resistance, zero telemetry. Under 10MB.">
+  <meta property="og:site_name" content="Void Browser">
+  <meta property="og:locale" content="en_US">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Void Browser — No tracking. No AI. Just browsing.">
+  <meta name="twitter:description" content="A minimal, secure, privacy-first web browser built with Rust. No tracking. No AI. Under 10MB.">
+
+  <!-- JSON-LD Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Void Browser",
+    "applicationCategory": "BrowserApplication",
+    "operatingSystem": "Linux, macOS, Windows",
+    "description": "A minimal, secure, privacy-first web browser built with Rust. No tracking, no AI, no telemetry.",
+    "url": "https://void.lightfoot.cloud",
+    "downloadUrl": "https://void.lightfoot.cloud/#download",
+    "softwareVersion": "0.1.0",
+    "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+    "author": {
+      "@type": "Person",
+      "name": "Daniel Lightfoot",
+      "url": "https://lightfoot.cloud"
+    },
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    "featureList": [
+      "Built-in ad blocker",
+      "Anti-fingerprinting",
+      "HTTPS-only mode",
+      "Zero telemetry",
+      "DNS over HTTPS",
+      "Under 10MB install size"
+    ]
+  }
+  </script>
+
+  <!-- Organization Schema -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "Void Browser",
+    "url": "https://void.lightfoot.cloud",
+    "description": "No tracking. No AI. Just browsing.",
+    "potentialAction": {
+      "@type": "SearchAction",
+      "target": "https://void.lightfoot.cloud/#download",
+      "query-input": "required name=search_term_string"
+    }
+  }
+  </script>
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700&display=swap" rel="stylesheet">
@@ -17,13 +82,17 @@
   <!-- Nav -->
   <nav>
     <div class="nav-inner">
-      <a href="/" class="logo">VOID</a>
+      <a href="/" class="logo" aria-label="Void Browser Home">VOID</a>
       <div class="nav-links">
         <a href="#features">Features</a>
         <a href="#security">Security</a>
+        <a href="#privacy-promise">Privacy</a>
         <a href="#download">Download</a>
-        <a href="https://gitlab.lightfoot.cloud/lightfootcloud/void-browser" class="nav-source">Source</a>
+        <a href="https://github.com/nicktrav/void-browser" class="nav-source" rel="noopener noreferrer">Source Code</a>
       </div>
+      <button class="nav-mobile" aria-label="Menu" onclick="document.querySelector('.nav-links').classList.toggle('open')">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+      </button>
     </div>
   </nav>
 
@@ -38,7 +107,7 @@
         Tiny footprint. Zero telemetry. Your data stays yours.
       </p>
       <div class="hero-cta">
-        <a href="#download" class="btn btn-primary">Download</a>
+        <a href="#download" class="btn btn-primary">Download for Free</a>
         <a href="#features" class="btn btn-ghost">Learn More</a>
       </div>
       <div class="hero-stats">
@@ -48,13 +117,13 @@
         </div>
         <div class="hero-stat-divider"></div>
         <div class="hero-stat">
-          <span class="hero-stat-value">0</span>
-          <span class="hero-stat-label">Trackers</span>
+          <span class="hero-stat-value">137K+</span>
+          <span class="hero-stat-label">Filter Rules</span>
         </div>
         <div class="hero-stat-divider"></div>
         <div class="hero-stat">
           <span class="hero-stat-value">0</span>
-          <span class="hero-stat-label">AI Features</span>
+          <span class="hero-stat-label">Trackers</span>
         </div>
         <div class="hero-stat-divider"></div>
         <div class="hero-stat">
@@ -65,15 +134,49 @@
     </div>
   </section>
 
-  <!-- What's Different -->
+  <!-- Privacy Promise Banner -->
+  <section id="privacy-promise">
+    <div class="container">
+      <div class="privacy-banner">
+        <div class="privacy-banner-icon">🔒</div>
+        <div class="privacy-banner-content">
+          <h2>Our Privacy Promise</h2>
+          <p>
+            This website does not use cookies. This website does not use analytics.
+            This website does not track you in any way. No Google Analytics. No Facebook Pixel.
+            No session recording. No fingerprinting. Nothing.
+          </p>
+          <p>
+            We practice what we preach. If we won't put trackers in our browser,
+            why would we put them on our website?
+          </p>
+          <div class="privacy-badges">
+            <span class="privacy-badge">🚫 No Cookies</span>
+            <span class="privacy-badge">🚫 No Analytics</span>
+            <span class="privacy-badge">🚫 No Tracking</span>
+            <span class="privacy-badge">🚫 No Third-Party Scripts</span>
+            <span class="privacy-badge">✅ HTTPS Only</span>
+            <span class="privacy-badge">✅ Open Source</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Manifesto -->
   <section id="manifesto">
     <div class="container">
       <h2>Every browser wants your data.<br>We want none of it.</h2>
       <p class="manifesto-text">
-        Chrome sells your attention. Firefox adds AI. Safari locks you in.
-        Brave has crypto. Arc has profiles of you.<br><br>
+        Chrome sells your attention to advertisers. Firefox added AI. Safari locks you into Apple's ecosystem.
+        Brave ships with a cryptocurrency wallet. Arc builds profiles of your behavior.
+      </p>
+      <p class="manifesto-text">
         Void has none of that. It's a browser. It browses.
         That's it. That's the product.
+      </p>
+      <p class="manifesto-text" style="color: var(--accent);">
+        <strong>Built for people who believe the internet should work for them, not against them.</strong>
       </p>
     </div>
   </section>
@@ -82,46 +185,47 @@
   <section id="features">
     <div class="container">
       <h2>What you get</h2>
+      <p class="section-desc">Everything you need. Nothing you don't.</p>
       <div class="features-grid">
         <div class="feature">
           <div class="feature-icon">🛡️</div>
           <h3>Built-in Ad Blocker</h3>
-          <p>Powered by the same engine as Brave. Blocks ads, trackers, and malware domains out of the box. No extensions needed.</p>
+          <p>Powered by the same engine as Brave Browser. Blocks ads, trackers, and malware domains with 137,000+ filter rules. No extensions needed.</p>
         </div>
         <div class="feature">
           <div class="feature-icon">🔒</div>
           <h3>HTTPS-Only Mode</h3>
-          <p>Strict HTTPS enforcement by default. Insecure connections are blocked, not just warned about.</p>
+          <p>Strict HTTPS enforcement by default. Insecure connections are blocked, not just warned about. Your data is always encrypted in transit.</p>
         </div>
         <div class="feature">
           <div class="feature-icon">👻</div>
           <h3>Anti-Fingerprinting</h3>
-          <p>Canvas, WebGL, and AudioContext fingerprinting resistance. Makes you look like everyone else.</p>
+          <p>Canvas, WebGL, and AudioContext fingerprinting resistance built in. Websites can't build a unique profile of your browser to track you across the web.</p>
         </div>
         <div class="feature">
           <div class="feature-icon">🚫</div>
           <h3>Zero Telemetry</h3>
-          <p>No usage analytics. No crash reports sent home. No "anonymous" data collection. Nothing leaves your machine.</p>
+          <p>No usage analytics. No crash reports sent home. No "anonymous" data collection. Nothing leaves your machine. We literally can't see what you do.</p>
         </div>
         <div class="feature">
           <div class="feature-icon">⚡</div>
-          <h3>Tiny & Fast</h3>
-          <p>Under 10MB installed. Uses your OS's native webview instead of shipping an entire Chromium. Starts in milliseconds.</p>
+          <h3>Tiny &amp; Fast</h3>
+          <p>Under 10MB installed. Uses your OS's native webview instead of shipping an entire copy of Chromium. Starts instantly. Uses less memory.</p>
         </div>
         <div class="feature">
           <div class="feature-icon">🎨</div>
-          <h3>Customizable</h3>
-          <p>Dark, Light, and Midnight (OLED) themes. Custom CSS injection. Configurable keybinds. Your browser, your rules.</p>
+          <h3>Fully Customizable</h3>
+          <p>Dark, Light, and Midnight (OLED) themes. Custom CSS injection. Configurable keybinds. A plain text config file you own. Your browser, your rules.</p>
         </div>
         <div class="feature">
           <div class="feature-icon">🔐</div>
           <h3>DNS over HTTPS</h3>
-          <p>Built-in DoH with Quad9, Cloudflare, or Mullvad. Your ISP can't see your DNS queries.</p>
+          <p>Built-in encrypted DNS with Quad9, Cloudflare, or Mullvad. Your ISP can't see your DNS queries or sell your browsing habits.</p>
         </div>
         <div class="feature">
-          <div class="feature-icon">📋</div>
-          <h3>Local Config</h3>
-          <p>Everything stored in a plain TOML file on your machine. No account. No cloud. No sync. Just a file you own.</p>
+          <div class="feature-icon">🌐</div>
+          <h3>WebRTC Leak Protection</h3>
+          <p>Prevents WebRTC from leaking your real IP address, even when using a VPN. Disabled for non-proxied connections by default.</p>
         </div>
       </div>
     </div>
@@ -130,40 +234,43 @@
   <!-- Security Levels -->
   <section id="security">
     <div class="container">
-      <h2>Three levels of paranoia</h2>
+      <h2>Three levels of protection</h2>
       <p class="section-desc">Pick your comfort level. All of them are better than Chrome's defaults.</p>
       <div class="security-levels">
         <div class="security-card">
           <div class="security-level-badge standard">Standard</div>
           <h3>Everyday Browsing</h3>
           <ul>
-            <li>Ad & tracker blocking</li>
-            <li>Referrer stripping</li>
-            <li>HTTPS upgrades</li>
-            <li>DNT & GPC headers</li>
+            <li>Ad &amp; tracker blocking (137K+ rules)</li>
+            <li>Referrer header stripping</li>
+            <li>Automatic HTTPS upgrades</li>
+            <li>Do Not Track &amp; Global Privacy Control</li>
+            <li>Telemetry domain blocking</li>
           </ul>
         </div>
         <div class="security-card featured">
           <div class="security-level-badge strict">Strict</div>
-          <div class="recommended">Default</div>
+          <div class="recommended">Recommended</div>
           <h3>Privacy-Focused</h3>
           <ul>
             <li>Everything in Standard, plus:</li>
             <li>Third-party cookie blocking</li>
-            <li>WebRTC leak prevention</li>
-            <li>Canvas fingerprint resistance</li>
-            <li>Telemetry domain blocking</li>
+            <li>WebRTC IP leak prevention</li>
+            <li>Canvas &amp; WebGL fingerprint resistance</li>
+            <li>AudioContext spoofing</li>
+            <li>Tracking header stripping</li>
           </ul>
         </div>
         <div class="security-card">
           <div class="security-level-badge paranoid">Paranoid</div>
-          <h3>Maximum Protection</h3>
+          <h3>Maximum Security</h3>
           <ul>
             <li>Everything in Strict, plus:</li>
-            <li>Full fingerprint resistance</li>
+            <li>Full fingerprint resistance suite</li>
             <li>JavaScript disabled by default</li>
-            <li>Timezone spoofing</li>
+            <li>Timezone spoofing (reports UTC)</li>
             <li>Font enumeration blocking</li>
+            <li>Screen dimension masking</li>
           </ul>
         </div>
       </div>
@@ -174,54 +281,52 @@
   <section id="no-features">
     <div class="container">
       <h2>What we proudly don't have</h2>
+      <p class="section-desc">Less is more. Especially when "more" means surveillance.</p>
       <div class="no-features-grid">
-        <div class="no-feature">
-          <span class="no-icon">✕</span>
-          <span>AI assistant</span>
-        </div>
-        <div class="no-feature">
-          <span class="no-icon">✕</span>
-          <span>Cryptocurrency wallet</span>
-        </div>
-        <div class="no-feature">
-          <span class="no-icon">✕</span>
-          <span>Built-in VPN upsell</span>
-        </div>
-        <div class="no-feature">
-          <span class="no-icon">✕</span>
-          <span>User accounts</span>
-        </div>
-        <div class="no-feature">
-          <span class="no-icon">✕</span>
-          <span>Cloud sync</span>
-        </div>
-        <div class="no-feature">
-          <span class="no-icon">✕</span>
-          <span>Telemetry</span>
-        </div>
-        <div class="no-feature">
-          <span class="no-icon">✕</span>
-          <span>News feed</span>
-        </div>
-        <div class="no-feature">
-          <span class="no-icon">✕</span>
-          <span>Sponsored shortcuts</span>
-        </div>
-        <div class="no-feature">
-          <span class="no-icon">✕</span>
-          <span>Pocket integration</span>
-        </div>
-        <div class="no-feature">
-          <span class="no-icon">✕</span>
-          <span>Social features</span>
-        </div>
-        <div class="no-feature">
-          <span class="no-icon">✕</span>
-          <span>Password manager upsell</span>
-        </div>
-        <div class="no-feature">
-          <span class="no-icon">✕</span>
-          <span>Usage analytics</span>
+        <div class="no-feature"><span class="no-icon">✕</span><span>AI assistant</span></div>
+        <div class="no-feature"><span class="no-icon">✕</span><span>Cryptocurrency wallet</span></div>
+        <div class="no-feature"><span class="no-icon">✕</span><span>Built-in VPN upsell</span></div>
+        <div class="no-feature"><span class="no-icon">✕</span><span>User accounts</span></div>
+        <div class="no-feature"><span class="no-icon">✕</span><span>Cloud sync</span></div>
+        <div class="no-feature"><span class="no-icon">✕</span><span>Telemetry</span></div>
+        <div class="no-feature"><span class="no-icon">✕</span><span>News feed</span></div>
+        <div class="no-feature"><span class="no-icon">✕</span><span>Sponsored shortcuts</span></div>
+        <div class="no-feature"><span class="no-icon">✕</span><span>Pocket integration</span></div>
+        <div class="no-feature"><span class="no-icon">✕</span><span>Social features</span></div>
+        <div class="no-feature"><span class="no-icon">✕</span><span>Password manager upsell</span></div>
+        <div class="no-feature"><span class="no-icon">✕</span><span>Usage analytics</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- For the People -->
+  <section id="for-the-people">
+    <div class="container">
+      <div class="people-banner">
+        <h2>This browser is for the people.</h2>
+        <p>
+          We believe browsing the internet is a right, not a product. You shouldn't have to trade
+          your privacy for the privilege of reading a webpage. You shouldn't need a computer science
+          degree to avoid being tracked.
+        </p>
+        <p>
+          Void is free. Void is open source. Void will never sell your data because Void never
+          collects your data. We don't have investors to please. We don't have quarterly revenue
+          targets. We just have a browser that respects you.
+        </p>
+        <div class="people-values">
+          <div class="value">
+            <strong>Free forever.</strong>
+            <span>No premium tiers. No paid features. Everything included.</span>
+          </div>
+          <div class="value">
+            <strong>Open source.</strong>
+            <span>Every line of code is public. Audit it yourself. We have nothing to hide.</span>
+          </div>
+          <div class="value">
+            <strong>Community-driven.</strong>
+            <span>Built by people who use it. Not by a corporation that profits from you.</span>
+          </div>
         </div>
       </div>
     </div>
@@ -231,9 +336,9 @@
   <section id="download">
     <div class="container">
       <h2>Get Void</h2>
-      <p class="section-desc">Free. Open source. Forever.</p>
+      <p class="section-desc">Free. Open source. Forever. No account required.</p>
       <div class="download-grid">
-        <a href="#" class="download-card">
+        <a href="#" class="download-card" aria-label="Download for Linux">
           <div class="download-icon">🐧</div>
           <h3>Linux</h3>
           <div class="download-formats">
@@ -242,7 +347,7 @@
           </div>
           <span class="download-size">~8 MB</span>
         </a>
-        <a href="#" class="download-card">
+        <a href="#" class="download-card" aria-label="Download for macOS">
           <div class="download-icon">🍎</div>
           <h3>macOS</h3>
           <div class="download-formats">
@@ -250,7 +355,7 @@
           </div>
           <span class="download-size">~9 MB</span>
         </a>
-        <a href="#" class="download-card">
+        <a href="#" class="download-card" aria-label="Download for Windows">
           <div class="download-icon">🪟</div>
           <h3>Windows</h3>
           <div class="download-formats">
@@ -260,10 +365,52 @@
           <span class="download-size">~7 MB</span>
         </a>
       </div>
-      <p class="build-note">
-        Or build from source:
-        <code>git clone https://gitlab.lightfoot.cloud/lightfootcloud/void-browser && cd void-browser && cargo tauri build</code>
-      </p>
+
+      <!-- Verification -->
+      <div class="verification-info">
+        <h3>🔐 Verify Your Download</h3>
+        <p>Every release includes SHA-256 checksums and GPG signatures so you can verify the file hasn't been tampered with.</p>
+        <code>sha256sum --check void-browser-0.1.0-linux.sha256</code>
+      </div>
+
+      <div class="build-source">
+        <h3>Build from Source</h3>
+        <p>Don't trust binaries? Build it yourself. The entire codebase is open.</p>
+        <code>git clone https://github.com/nicktrav/void-browser.git<br>cd void-browser<br>cargo tauri build</code>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section id="faq">
+    <div class="container">
+      <h2>Questions</h2>
+      <div class="faq-grid">
+        <div class="faq-item">
+          <h3>Is Void really free?</h3>
+          <p>Yes. Free as in freedom and free as in beer. GPL-3.0 licensed. No premium version. No paid features. Ever.</p>
+        </div>
+        <div class="faq-item">
+          <h3>What engine does it use?</h3>
+          <p>Void uses your operating system's native webview — WebKit on macOS, WebView2 on Windows, and WebKitGTK on Linux. No bundled Chromium.</p>
+        </div>
+        <div class="faq-item">
+          <h3>Why is it so small?</h3>
+          <p>Most browsers ship an entire copy of Chromium (~150MB). Void uses the webview your OS already has, so we only ship the browser chrome and privacy engine.</p>
+        </div>
+        <div class="faq-item">
+          <h3>Will it break websites?</h3>
+          <p>In Standard mode, almost never. Strict mode may block some third-party widgets. Paranoid mode disables JavaScript by default — some sites will need manual exceptions.</p>
+        </div>
+        <div class="faq-item">
+          <h3>How do I report a bug?</h3>
+          <p>Open an issue on our <a href="https://github.com/nicktrav/void-browser/issues" rel="noopener noreferrer">GitHub repository</a>. We read every one.</p>
+        </div>
+        <div class="faq-item">
+          <h3>Can I contribute?</h3>
+          <p>Absolutely. Pull requests welcome. Check the README for build instructions and contribution guidelines.</p>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -275,18 +422,23 @@
         <span class="footer-copy">Built by one person. No VC. No telemetry. No bullshit.</span>
       </div>
       <div class="footer-links">
-        <a href="https://gitlab.lightfoot.cloud/lightfootcloud/void-browser">Source Code</a>
-        <a href="https://gitlab.lightfoot.cloud/lightfootcloud/void-browser/-/blob/main/LICENSE">License (GPL-3.0)</a>
+        <a href="https://github.com/nicktrav/void-browser" rel="noopener noreferrer">Source Code</a>
+        <a href="https://github.com/nicktrav/void-browser/blob/main/LICENSE" rel="noopener noreferrer">License (GPL-3.0)</a>
+        <a href="https://lightfoot.cloud" rel="noopener noreferrer">lightfoot.cloud</a>
       </div>
+    </div>
+    <div class="container footer-privacy">
+      <p>This website contains zero tracking scripts, zero cookies, and zero analytics. We respect your privacy here, too.</p>
     </div>
   </footer>
 
   <script>
-    // Smooth scroll
+    // Smooth scroll for anchor links
     document.querySelectorAll('a[href^="#"]').forEach(a => {
       a.addEventListener('click', e => {
         e.preventDefault();
-        document.querySelector(a.getAttribute('href'))?.scrollIntoView({ behavior: 'smooth' });
+        const target = document.querySelector(a.getAttribute('href'));
+        if (target) target.scrollIntoView({ behavior: 'smooth' });
       });
     });
 

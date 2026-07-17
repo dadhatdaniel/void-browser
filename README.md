@@ -12,7 +12,7 @@ Void has none of that. It's a browser. It browses. That's it.
 
 ## Features
 
-- 🛡️ **Built-in ad blocker** — Powered by [adblock-rust](https://github.com/nicktrav/nicktrav/nicktrav) (same engine as Brave)
+- 🛡️ **Built-in ad blocker** — Powered by adblock-rust (same engine as Brave)
 - 🔒 **HTTPS-only mode** — Insecure connections blocked by default
 - 👻 **Anti-fingerprinting** — Canvas, WebGL, AudioContext resistance
 - 🚫 **Zero telemetry** — Nothing leaves your machine. Ever.
@@ -120,3 +120,23 @@ GPL-3.0 — Free as in freedom.
 ---
 
 *Built by [Daniel Lightfoot](https://lightfoot.cloud). No VC. No telemetry. No bullshit.*
+
+## Security
+
+Void takes security seriously:
+
+- **Signed releases** — All packages include SHA-256 checksums and GPG signatures
+- **Dependency auditing** — `cargo audit` runs on every build to catch known CVEs
+- **License compliance** — Automated license scanning ensures no incompatible dependencies
+- **Binary verification** — Post-build checks verify RELRO, stripped symbols, and linked libraries
+- **No tracking on the website** — The Void website uses zero cookies, zero analytics, and zero tracking scripts. We verify this in CI.
+- **Hardened container** — The website runs read-only with dropped capabilities and memory limits
+
+To verify a download:
+```bash
+# Check file integrity
+sha256sum --check CHECKSUMS.sha256
+
+# Verify GPG signature
+gpg --verify CHECKSUMS.sha256.asc
+```

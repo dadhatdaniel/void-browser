@@ -91,7 +91,7 @@ pub enum NewTabPage {
 pub enum Theme {
     Dark,
     Light,
-    Midnight,  // OLED black
+    Midnight, // OLED black
     Custom(String),
 }
 

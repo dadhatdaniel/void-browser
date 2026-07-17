@@ -98,7 +98,7 @@ impl AdBlocker {
         BlockStats {
             total_checked: self.total_checked.load(Ordering::Relaxed),
             total_blocked: self.total_blocked.load(Ordering::Relaxed),
-            ads_blocked: 0,      // TODO: categorize by filter list
+            ads_blocked: 0, // TODO: categorize by filter list
             trackers_blocked: 0, // TODO: categorize by filter list
         }
     }

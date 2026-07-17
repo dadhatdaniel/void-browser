@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://void.lightfoot.cloud/sitemap.xml
