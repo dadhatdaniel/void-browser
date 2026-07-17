@@ -3,7 +3,6 @@
 
 use adblock::engine::Engine;
 use adblock::lists::{FilterSet, ParseOptions};
-use adblock::request::Request;
 use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -33,27 +32,42 @@ impl AdBlocker {
     pub fn new(config: &VoidConfig) -> Self {
         let mut filter_set = FilterSet::new(true);
 
-        // Load built-in filter lists
         if config.adblock_enabled {
-            // EasyList — ad blocking (full list if available, minimal fallback)
-            let easylist = include_str!("../../filters/easylist-full.txt");
+            // Load bundled minimal filter lists (compiled into the binary)
+            let easylist = include_str!("../../filters/easylist-minimal.txt");
             filter_set.add_filters(
-                &easylist.lines().map(|s| s.to_string()).collect::<Vec<_>>(),
+                &easylist
+                    .lines()
+                    .map(std::string::ToString::to_string)
+                    .collect::<Vec<_>>(),
                 ParseOptions::default(),
             );
 
-            // EasyPrivacy — tracker blocking (full list)
-            let privacy = include_str!("../../filters/easyprivacy-full.txt");
+            let privacy = include_str!("../../filters/privacy-filters.txt");
             filter_set.add_filters(
-                &privacy.lines().map(|s| s.to_string()).collect::<Vec<_>>(),
+                &privacy
+                    .lines()
+                    .map(std::string::ToString::to_string)
+                    .collect::<Vec<_>>(),
                 ParseOptions::default(),
             );
+
+            // Load full filter lists from runtime data directory if available
+            // These are downloaded by the installer or on first run
+            if let Some(data_dir) = dirs::data_dir() {
+                let filters_dir = data_dir.join("void-browser").join("filters");
+                load_filter_file(&mut filter_set, &filters_dir.join("easylist-full.txt"));
+                load_filter_file(&mut filter_set, &filters_dir.join("easyprivacy-full.txt"));
+            }
         }
 
         // Load user custom filters
         if let Some(ref custom) = config.custom_filters {
             filter_set.add_filters(
-                &custom.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+                &custom
+                    .iter()
+                    .map(std::string::ToString::to_string)
+                    .collect::<Vec<_>>(),
                 ParseOptions::default(),
             );
         }
@@ -70,16 +84,6 @@ impl AdBlocker {
     /// Check if a URL should be blocked
     pub fn check(&self, url: &str, source_url: &str) -> MatchResult {
         self.total_checked.fetch_add(1, Ordering::Relaxed);
-
-        let request = match Request::new(url, source_url, "other") {
-            Ok(r) => r,
-            Err(_) => {
-                return MatchResult {
-                    matched: false,
-                    filter: None,
-                }
-            }
-        };
 
         let result = self.engine.check_network_urls(url, source_url, "other");
 
@@ -98,14 +102,26 @@ impl AdBlocker {
         BlockStats {
             total_checked: self.total_checked.load(Ordering::Relaxed),
             total_blocked: self.total_blocked.load(Ordering::Relaxed),
-            ads_blocked: 0,      // TODO: categorize by filter list
-            trackers_blocked: 0, // TODO: categorize by filter list
+            ads_blocked: 0,
+            trackers_blocked: 0,
         }
     }
 }
 
-// ── Known Tracker Domains (hardcoded fallback) ──────────────────
+/// Load a filter list file at runtime if it exists
+fn load_filter_file(filter_set: &mut FilterSet, path: &std::path::Path) {
+    if let Ok(content) = std::fs::read_to_string(path) {
+        filter_set.add_filters(
+            &content
+                .lines()
+                .map(std::string::ToString::to_string)
+                .collect::<Vec<_>>(),
+            ParseOptions::default(),
+        );
+    }
+}
 
+/// Known tracker domains (hardcoded fallback for domain-level blocking)
 pub const TRACKER_DOMAINS: &[&str] = &[
     "google-analytics.com",
     "googletagmanager.com",

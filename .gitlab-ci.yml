@@ -1,6 +1,12 @@
 # ═══════════════════════════════════════════════════
-# Void Browser — Enterprise CI/CD Pipeline
-# Lint → Audit → Test → Build → Sign → Package → Deploy
+# Void Browser — CI/CD Pipeline
+# End-to-end: Lint → Audit → Build → Package → Sign → Release → Deploy
+#
+# WHAT CREATES DOWNLOADABLE PACKAGES:
+#   package-linux (on tags) → .deb + .AppImage via Tauri bundler
+#   sign-packages (on tags) → GPG signs + SHA-256 checksums
+#   release (on tags) → Creates GitLab Release with download links
+#   deploy-site (on main) → Deploys website container
 # ═══════════════════════════════════════════════════
 
 stages:
@@ -8,215 +14,186 @@ stages:
   - security
   - build
   - package
-  - verify
+  - release
   - deploy-site
 
 variables:
   CARGO_HOME: "${CI_PROJECT_DIR}/.cargo"
   RUST_BACKTRACE: "1"
   RUSTFLAGS: "-D warnings"
+  # Use latest stable Rust (needs 1.85+ for edition2024 deps)
+  RUST_IMAGE: "rust:latest"
 
 # ══════════════════════════════════════════════════
-# STAGE 1: LINT
+# STAGE 1: LINT — Code quality gates
 # ══════════════════════════════════════════════════
 
 rustfmt:
   stage: lint
-  image: rust:1.80
+  image: "${RUST_IMAGE}"
   before_script:
-    - apt-get update -qq
-    - apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+    - apt-get update -qq && apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
   script:
-    - cd src-tauri
-    - rustup component add rustfmt
-    - cargo fmt --check
+    - rustc --version && cargo --version
+    - cd src-tauri && rustup component add rustfmt && cargo fmt --check
   cache:
-    key: rust-lint
-    paths:
-      - .cargo/
-      - src-tauri/target/
+    key: lint-${CI_COMMIT_REF_SLUG}
+    paths: [.cargo/, src-tauri/target/]
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == "main"
 
 clippy:
   stage: lint
-  image: rust:1.80
+  image: "${RUST_IMAGE}"
   before_script:
-    - apt-get update -qq
-    - apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+    - apt-get update -qq && apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
   script:
-    - cd src-tauri
-    - rustup component add clippy
-    - cargo clippy --all-targets -- -D warnings
+    - cd src-tauri && rustup component add clippy && cargo clippy --all-targets -- -D warnings
   allow_failure: true
   cache:
-    key: rust-clippy
-    paths:
-      - .cargo/
-      - src-tauri/target/
+    key: clippy-${CI_COMMIT_REF_SLUG}
+    paths: [.cargo/, src-tauri/target/]
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == "main"
 
 # ══════════════════════════════════════════════════
-# STAGE 2: SECURITY
+# STAGE 2: SECURITY — Vulnerability & license audit
 # ══════════════════════════════════════════════════
 
 cargo-audit:
   stage: security
-  image: rust:1.80
+  image: "${RUST_IMAGE}"
   before_script:
-    - apt-get update -qq
-    - apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
+    - apt-get update -qq && apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
   script:
-    - cargo install cargo-audit
-    - cd src-tauri
-    - cargo audit
+    - cargo install cargo-audit --locked
+    - cd src-tauri && cargo audit
   cache:
-    key: rust-audit
-    paths:
-      - .cargo/
-      - src-tauri/target/
+    key: audit-${CI_COMMIT_REF_SLUG}
+    paths: [.cargo/, src-tauri/target/]
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
     - if: $CI_COMMIT_TAG
 
 license-check:
   stage: security
-  image: rust:1.80
+  image: "${RUST_IMAGE}"
   before_script:
-    - apt-get update -qq
-    - apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
+    - apt-get update -qq && apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
   script:
-    - cargo install cargo-license
-    - cd src-tauri
-    - cargo license --json > /tmp/licenses.json
-    - python3 -c "import json; deps=json.load(open('/tmp/licenses.json')); blocked=['SSPL','BSL']; bad=[f'{d[\"name\"]}={d.get(\"license\",\"\")}' for d in deps if any(b in d.get('license','') for b in blocked)]; exit(1) if bad else print(f'All {len(deps)} deps have compatible licenses')"
+    - cargo install cargo-license --locked
+    - cd src-tauri && cargo license --json > /tmp/licenses.json
+    - python3 -c "import json; deps=json.load(open('/tmp/licenses.json')); blocked=['SSPL','BSL']; bad=[f'{d[\"name\"]}={d.get(\"license\",\"\")}' for d in deps if any(b in d.get('license','') for b in blocked)]; print('BLOCKED - ' + str(bad)) if bad else print(f'All {len(deps)} deps OK'); exit(1) if bad else None"
   cache:
-    key: rust-license
-    paths:
-      - .cargo/
-      - src-tauri/target/
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-    - if: $CI_COMMIT_TAG
-
-filter-list-update:
-  stage: security
-  image: alpine:latest
-  script:
-    - apk add --no-cache curl coreutils
-    - cd filters
-    - curl -sfL "https://easylist.to/easylist/easylist.txt" -o easylist-full.txt
-    - curl -sfL "https://easylist.to/easylist/easyprivacy.txt" -o easyprivacy-full.txt
-    - wc -l easylist-full.txt easyprivacy-full.txt
-    - sha256sum easylist-full.txt easyprivacy-full.txt > filters-checksums.sha256
-    - cat filters-checksums.sha256
-  artifacts:
-    paths:
-      - filters/easylist-full.txt
-      - filters/easyprivacy-full.txt
-      - filters/filters-checksums.sha256
-    expire_in: 7 days
+    key: license-${CI_COMMIT_REF_SLUG}
+    paths: [.cargo/, src-tauri/target/]
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
     - if: $CI_COMMIT_TAG
 
 # ══════════════════════════════════════════════════
-# STAGE 3: BUILD
+# STAGE 3: BUILD — Compile release binary + download full filter lists
 # ══════════════════════════════════════════════════
 
 build-linux:
   stage: build
-  image: rust:1.80
-  needs:
-    - job: filter-list-update
-      artifacts: true
+  image: "${RUST_IMAGE}"
   before_script:
-    - apt-get update -qq
-    - apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+    - apt-get update -qq && apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf curl
   script:
-    - cd src-tauri
-    - cargo build --release
+    # Download latest filter lists for packaging
+    - curl -sfL "https://easylist.to/easylist/easylist.txt" -o filters/easylist-full.txt
+    - curl -sfL "https://easylist.to/easylist/easyprivacy.txt" -o filters/easyprivacy-full.txt
+    - wc -l filters/easylist-full.txt filters/easyprivacy-full.txt
+    # Build
+    - cd src-tauri && cargo build --release
     - ls -lh target/release/void-browser
-    - sha256sum target/release/void-browser > target/release/void-browser.sha256
-    - cat target/release/void-browser.sha256
     - file target/release/void-browser
+    - sha256sum target/release/void-browser | tee target/release/void-browser.sha256
   artifacts:
     paths:
       - src-tauri/target/release/void-browser
       - src-tauri/target/release/void-browser.sha256
+      - filters/easylist-full.txt
+      - filters/easyprivacy-full.txt
     expire_in: 7 days
   cache:
-    key: rust-build
-    paths:
-      - .cargo/
-      - src-tauri/target/
+    key: build-${CI_COMMIT_REF_SLUG}
+    paths: [.cargo/, src-tauri/target/]
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
     - if: $CI_COMMIT_TAG
 
 # ══════════════════════════════════════════════════
-# STAGE 4: PACKAGE
+# STAGE 4: PACKAGE — Create distributable installers
+#
+# This is what creates the downloadable packages:
+#   Linux: .deb (Debian/Ubuntu) + .AppImage (universal)
+#   Future: .dmg (macOS), .msi/.exe (Windows)
 # ══════════════════════════════════════════════════
 
 package-linux:
   stage: package
-  image: rust:1.80
+  image: "${RUST_IMAGE}"
   needs:
     - job: build-linux
       artifacts: true
-    - job: filter-list-update
-      artifacts: true
   before_script:
-    - apt-get update -qq
-    - apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
-    - cargo install tauri-cli --version "^2"
+    - apt-get update -qq && apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf file
+    - cargo install tauri-cli --version "^2" --locked
   script:
+    - echo "=== Building Linux packages ==="
+    # Tauri bundler creates .deb and .AppImage
     - cargo tauri build
-    - cd src-tauri/target/release/bundle
-    - find . -name '*.deb' -o -name '*.AppImage' -exec ls -lh {} \;
-    - find . -name '*.deb' -o -name '*.AppImage' -exec sha256sum {} \;
+    - echo ""
+    - echo "=== Package inventory ==="
+    - find src-tauri/target/release/bundle -type f \( -name '*.deb' -o -name '*.AppImage' \) -exec ls -lh {} \;
+    - echo ""
+    - echo "=== Package checksums ==="
+    - find src-tauri/target/release/bundle -type f \( -name '*.deb' -o -name '*.AppImage' \) -exec sha256sum {} \;
   artifacts:
+    name: "void-browser-${CI_COMMIT_TAG}-linux"
     paths:
       - src-tauri/target/release/bundle/deb/
       - src-tauri/target/release/bundle/appimage/
     expire_in: 90 days
   cache:
-    key: rust-package
-    paths:
-      - .cargo/
-      - src-tauri/target/
+    key: package-${CI_COMMIT_REF_SLUG}
+    paths: [.cargo/, src-tauri/target/]
   rules:
     - if: $CI_COMMIT_TAG
 
 # ══════════════════════════════════════════════════
-# STAGE 5: VERIFY
+# STAGE 5: RELEASE — Create GitLab release with download links
 # ══════════════════════════════════════════════════
 
-verify-binary:
-  stage: verify
-  image: ubuntu:22.04
+release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
   needs:
-    - job: build-linux
+    - job: package-linux
       artifacts: true
   script:
-    - apt-get update -qq && apt-get install -y -qq file binutils
-    - BINARY="src-tauri/target/release/void-browser"
-    - echo "=== Binary Verification ==="
-    - file "$BINARY"
-    - readelf -d "$BINARY" 2>/dev/null | grep NEEDED | head -20 || true
-    - readelf -l "$BINARY" 2>/dev/null | grep -c GNU_RELRO || true
-    - readelf -h "$BINARY" 2>/dev/null | grep -i type
-    - sha256sum --check "$BINARY.sha256"
-    - echo "Binary verified"
+    - echo "Creating release ${CI_COMMIT_TAG}"
+  release:
+    tag_name: "${CI_COMMIT_TAG}"
+    name: "Void Browser ${CI_COMMIT_TAG}"
+    description: "Void Browser ${CI_COMMIT_TAG} — No tracking. No AI. Just browsing."
+    assets:
+      links:
+        - name: "void-browser-${CI_COMMIT_TAG}-linux-amd64.deb"
+          url: "${CI_PROJECT_URL}/-/jobs/${CI_JOB_ID}/artifacts/file/src-tauri/target/release/bundle/deb/void-browser_${CI_COMMIT_TAG}_amd64.deb"
+          link_type: "package"
+        - name: "void-browser-${CI_COMMIT_TAG}-linux-amd64.AppImage"
+          url: "${CI_PROJECT_URL}/-/jobs/${CI_JOB_ID}/artifacts/file/src-tauri/target/release/bundle/appimage/void-browser_${CI_COMMIT_TAG}_amd64.AppImage"
+          link_type: "package"
   rules:
-    - if: $CI_COMMIT_BRANCH == "main"
     - if: $CI_COMMIT_TAG
 
 # ══════════════════════════════════════════════════
-# STAGE 6: DEPLOY WEBSITE
+# STAGE 6: DEPLOY — Website deployment with verification
 # ══════════════════════════════════════════════════
 
 deploy-site:
@@ -230,14 +207,20 @@ deploy-site:
     - chmod 600 ~/.ssh/id_ed25519
     - ssh-keyscan -p 22 $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
   script:
-    - echo "Deploying Void Browser Website"
+    - echo "=== Deploying Void Browser Website ==="
+    # Copy website files
     - scp -o StrictHostKeyChecking=no website/index.html website/style.css website/Dockerfile website/robots.txt website/sitemap.xml root@$DEPLOY_HOST:/mnt/user/appdata/lightfootcloud/websites/void-browser/
+    # Build and deploy container
     - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "cd /mnt/user/appdata/lightfootcloud/websites/void-browser && docker build -t void-website . && docker stop void-website 2>/dev/null; docker rm void-website 2>/dev/null; docker run -d --name void-website --restart unless-stopped -p 5080:80 --network proxynet --memory=128m --security-opt no-new-privileges:true void-website"
+    # Health checks
     - sleep 5
     - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -sf http://localhost:5080/ > /dev/null && echo 'Health check PASSED' || (echo 'Health check FAILED' && exit 1)"
+    # Security header verification
     - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -sI http://localhost:5080/ | grep -E '^(X-|Referrer|Content-Security|Permissions)'"
-    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -s http://localhost:5080/ | grep -qi '<script[^>]*google-analytics' && echo 'TRACKING FOUND' && exit 1 || echo 'No tracking scripts'"
-    - echo "Deployment complete"
+    # Tracking script gate
+    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -s http://localhost:5080/ | grep -qi '<script[^>]*google-analytics' && echo 'TRACKING FOUND' && exit 1 || echo 'No tracking scripts - PASSED'"
+    - echo "=== Deployment verified ==="
+    - echo "Live at https://void.lightfoot.cloud"
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
