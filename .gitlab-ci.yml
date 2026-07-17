@@ -101,6 +101,7 @@ virus-scan:
   stage: scan
   image: python:3.12-alpine
   timeout: 2h
+  needs: []
   variables:
     VT_RELEASE_TAG: "v0.1.0-alpha.3"
     VT_WEBSITE_URL: "https://void.lightfoot.cloud"
