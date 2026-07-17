@@ -161,6 +161,24 @@ nav.scrolled {
   line-height: 1.8;
 }
 
+.hero-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 32px;
+}
+
+.hero-badges img {
+  height: 22px;
+  border-radius: 4px;
+  transition: transform 0.15s ease;
+}
+
+.hero-badges a:hover img {
+  transform: translateY(-1px);
+}
+
 .hero-cta {
   display: flex;
   gap: 16px;
