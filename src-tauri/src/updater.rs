@@ -44,9 +44,7 @@ pub fn spawn_startup_check<R: Runtime>(app: AppHandle<R>) {
 
 /// Settings / manual check. Shows a dialog when already up to date.
 #[tauri::command]
-pub async fn check_for_updates<R: Runtime>(
-    app: AppHandle<R>,
-) -> Result<UpdateCheckResult, String> {
+pub async fn check_for_updates<R: Runtime>(app: AppHandle<R>) -> Result<UpdateCheckResult, String> {
     check_and_prompt(app, true).await
 }
 
@@ -151,4 +149,11 @@ fn ask_install<R: Runtime>(app: &AppHandle<R>, title: &str, message: &str) -> bo
         .title(title.to_string())
         .kind(MessageDialogKind::Info)
         .buttons(MessageDialogButtons::OkCancelCustom(
-            "Install & Relaunch"
+            "Install & Relaunch".into(),
+            "Later".into(),
+        ))
+        .show(move |answer| {
+            let _ = tx.send(answer);
+        });
+    rx.recv().unwrap_or(false)
+}
