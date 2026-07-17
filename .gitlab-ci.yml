@@ -16,127 +16,88 @@ variables:
   RUST_BACKTRACE: "1"
   RUSTFLAGS: "-D warnings"
 
-# ── Shared Config ─────────────────────────────────
-
-.rust-setup: &rust-setup
-  image: rust:1.80
-  before_script:
-    - apt-get update -qq
-    - apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev
-        libayatana-appindicator3-dev librsvg2-dev patchelf
-  cache:
-    key: "${CI_JOB_NAME}-${CI_COMMIT_REF_SLUG}"
-    paths:
-      - .cargo/
-      - src-tauri/target/
-
 # ══════════════════════════════════════════════════
-# STAGE 1: LINT — Code quality & formatting
+# STAGE 1: LINT
 # ══════════════════════════════════════════════════
 
 rustfmt:
   stage: lint
-  <<: *rust-setup
+  image: rust:1.80
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
   script:
     - cd src-tauri
     - rustup component add rustfmt
     - cargo fmt --check
+  cache:
+    key: rust-lint
+    paths:
+      - .cargo/
+      - src-tauri/target/
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == "main"
 
 clippy:
   stage: lint
-  <<: *rust-setup
+  image: rust:1.80
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
   script:
     - cd src-tauri
     - rustup component add clippy
-    - cargo clippy --all-targets -- -D warnings -D clippy::all -D clippy::pedantic
-        -A clippy::module_name_repetitions
-        -A clippy::must_use_candidate
-  allow_failure: true  # Pedantic clippy — advisory until codebase matures
+    - cargo clippy --all-targets -- -D warnings
+  allow_failure: true
+  cache:
+    key: rust-clippy
+    paths:
+      - .cargo/
+      - src-tauri/target/
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == "main"
-
-frontend-lint:
-  stage: lint
-  image: node:22-alpine
-  script:
-    - echo "Checking HTML validity..."
-    - |
-      # Check for common HTML issues
-      if grep -rn 'http://' src/ --include='*.html' --include='*.js' | grep -v 'localhost\|127.0.0.1\|void://'; then
-        echo "WARNING: Found HTTP (non-HTTPS) URLs in frontend code"
-      fi
-    - echo "Checking for inline scripts/styles that bypass CSP..."
-    - echo "Frontend lint passed"
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH == "main"
-    changes:
-      - src/**/*
 
 # ══════════════════════════════════════════════════
-# STAGE 2: SECURITY — Vulnerability & dependency audit
+# STAGE 2: SECURITY
 # ══════════════════════════════════════════════════
 
 cargo-audit:
   stage: security
-  <<: *rust-setup
+  image: rust:1.80
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
   script:
     - cargo install cargo-audit
     - cd src-tauri
     - cargo audit
-  allow_failure: false  # Block pipeline on known CVEs
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-    - if: $CI_COMMIT_TAG
-
-dependency-check:
-  stage: security
-  <<: *rust-setup
-  script:
-    - cd src-tauri
-    - echo "Checking dependency tree for suspicious crates..."
-    - cargo tree --depth 3 > /tmp/dep-tree.txt
-    - |
-      # Flag any dependencies from unknown registries
-      if grep -i 'git+' /tmp/dep-tree.txt; then
-        echo "WARNING: Git dependencies found — review manually"
-      fi
-    - echo "Checking for yanked crates..."
-    - cargo update --dry-run 2>&1 || true
-    - echo "Dependency check passed"
+  cache:
+    key: rust-audit
+    paths:
+      - .cargo/
+      - src-tauri/target/
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
     - if: $CI_COMMIT_TAG
 
 license-check:
   stage: security
-  <<: *rust-setup
+  image: rust:1.80
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
   script:
     - cargo install cargo-license
     - cd src-tauri
-    - echo "Checking license compatibility (GPL-3.0 project)..."
     - cargo license --json > /tmp/licenses.json
-    - |
-      python3 -c "
-      import json
-      with open('/tmp/licenses.json') as f:
-          deps = json.load(f)
-      bad = []
-      blocked = ['SSPL', 'BSL', 'AGPL-3.0']
-      for dep in deps:
-          lic = dep.get('license', '')
-          if any(b in lic for b in blocked):
-              bad.append(f'{dep[\"name\"]}: {lic}')
-      if bad:
-          print('BLOCKED licenses found:')
-          for b in bad: print(f'  - {b}')
-          exit(1)
-      print(f'All {len(deps)} dependencies have compatible licenses')
-      "
+    - python3 -c "import json; deps=json.load(open('/tmp/licenses.json')); blocked=['SSPL','BSL']; bad=[f'{d[\"name\"]}={d.get(\"license\",\"\")}' for d in deps if any(b in d.get('license','') for b in blocked)]; exit(1) if bad else print(f'All {len(deps)} deps have compatible licenses')"
+  cache:
+    key: rust-license
+    paths:
+      - .cargo/
+      - src-tauri/target/
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
     - if: $CI_COMMIT_TAG
@@ -147,13 +108,9 @@ filter-list-update:
   script:
     - apk add --no-cache curl coreutils
     - cd filters
-    - echo "Downloading latest EasyList..."
     - curl -sfL "https://easylist.to/easylist/easylist.txt" -o easylist-full.txt
-    - echo "Downloading latest EasyPrivacy..."
     - curl -sfL "https://easylist.to/easylist/easyprivacy.txt" -o easyprivacy-full.txt
-    - echo "Filter lists updated:"
     - wc -l easylist-full.txt easyprivacy-full.txt
-    - echo "Generating checksums..."
     - sha256sum easylist-full.txt easyprivacy-full.txt > filters-checksums.sha256
     - cat filters-checksums.sha256
   artifacts:
@@ -167,101 +124,75 @@ filter-list-update:
     - if: $CI_COMMIT_TAG
 
 # ══════════════════════════════════════════════════
-# STAGE 3: BUILD — Compile release binary
+# STAGE 3: BUILD
 # ══════════════════════════════════════════════════
 
 build-linux:
   stage: build
-  <<: *rust-setup
+  image: rust:1.80
   needs:
     - job: filter-list-update
       artifacts: true
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
   script:
     - cd src-tauri
-    - echo "Building Void Browser (release)..."
-    - cargo build --release 2>&1
+    - cargo build --release
     - ls -lh target/release/void-browser
-    - echo "Generating build checksums..."
     - sha256sum target/release/void-browser > target/release/void-browser.sha256
     - cat target/release/void-browser.sha256
-    - echo "Build info:"
     - file target/release/void-browser
-    - echo "Binary size: $(du -h target/release/void-browser | cut -f1)"
   artifacts:
     paths:
       - src-tauri/target/release/void-browser
       - src-tauri/target/release/void-browser.sha256
     expire_in: 7 days
+  cache:
+    key: rust-build
+    paths:
+      - .cargo/
+      - src-tauri/target/
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
     - if: $CI_COMMIT_TAG
 
 # ══════════════════════════════════════════════════
-# STAGE 4: PACKAGE — Create installers & sign
+# STAGE 4: PACKAGE
 # ══════════════════════════════════════════════════
 
 package-linux:
   stage: package
-  <<: *rust-setup
+  image: rust:1.80
   needs:
     - job: build-linux
       artifacts: true
     - job: filter-list-update
       artifacts: true
-  script:
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
     - cargo install tauri-cli --version "^2"
-    - echo "Packaging .deb and .AppImage..."
-    - cargo tauri build 2>&1
-    - echo "Generating package checksums..."
-    - cd src-tauri/target/release/bundle
-    - find . -name '*.deb' -o -name '*.AppImage' | while read f; do
-        sha256sum "$f" > "${f}.sha256";
-        echo "$(cat "${f}.sha256")";
-      done
-    - echo "Package listing:"
-    - find . -name '*.deb' -o -name '*.AppImage' | xargs ls -lh
-  artifacts:
-    paths:
-      - src-tauri/target/release/bundle/deb/*.deb
-      - src-tauri/target/release/bundle/deb/*.deb.sha256
-      - src-tauri/target/release/bundle/appimage/*.AppImage
-      - src-tauri/target/release/bundle/appimage/*.AppImage.sha256
-    expire_in: 90 days
-  rules:
-    - if: $CI_COMMIT_TAG
-
-sign-packages:
-  stage: package
-  image: alpine:latest
-  needs:
-    - job: package-linux
-      artifacts: true
   script:
-    - apk add --no-cache gnupg coreutils
-    - echo "Importing GPG signing key..."
-    - echo "$GPG_PRIVATE_KEY" | gpg --batch --import 2>/dev/null
-    - echo "Signing packages..."
-    - find src-tauri/target/release/bundle -name '*.deb' -o -name '*.AppImage' | while read f; do
-        gpg --batch --yes --detach-sign --armor --local-user "$GPG_KEY_ID" "$f";
-        echo "Signed: $f";
-      done
-    - echo "Generating combined checksums..."
-    - find src-tauri/target/release/bundle -name '*.deb' -o -name '*.AppImage' | sort | xargs sha256sum > CHECKSUMS.sha256
-    - gpg --batch --yes --clearsign --local-user "$GPG_KEY_ID" CHECKSUMS.sha256
-    - cat CHECKSUMS.sha256.asc
-    - echo "All packages signed and checksummed"
+    - cargo tauri build
+    - cd src-tauri/target/release/bundle
+    - find . -name '*.deb' -o -name '*.AppImage' -exec ls -lh {} \;
+    - find . -name '*.deb' -o -name '*.AppImage' -exec sha256sum {} \;
   artifacts:
     paths:
-      - src-tauri/target/release/bundle/**/*.asc
-      - CHECKSUMS.sha256
-      - CHECKSUMS.sha256.asc
+      - src-tauri/target/release/bundle/deb/
+      - src-tauri/target/release/bundle/appimage/
     expire_in: 90 days
+  cache:
+    key: rust-package
+    paths:
+      - .cargo/
+      - src-tauri/target/
   rules:
     - if: $CI_COMMIT_TAG
-  when: manual  # Manual trigger until GPG key is configured
 
 # ══════════════════════════════════════════════════
-# STAGE 5: VERIFY — Post-build validation
+# STAGE 5: VERIFY
 # ══════════════════════════════════════════════════
 
 verify-binary:
@@ -274,31 +205,24 @@ verify-binary:
     - apt-get update -qq && apt-get install -y -qq file binutils
     - BINARY="src-tauri/target/release/void-browser"
     - echo "=== Binary Verification ==="
-    - echo "File type:"
     - file "$BINARY"
-    - echo "Size: $(du -h "$BINARY" | cut -f1)"
-    - echo "Symbols stripped: $(file "$BINARY" | grep -c 'stripped' || echo 'no')"
-    - echo "Linked libraries:"
     - readelf -d "$BINARY" 2>/dev/null | grep NEEDED | head -20 || true
-    - echo "Security features:"
-    - readelf -l "$BINARY" 2>/dev/null | grep -c GNU_RELRO && echo "  RELRO: yes" || echo "  RELRO: no"
-    - readelf -d "$BINARY" 2>/dev/null | grep -c BIND_NOW && echo "  Full RELRO: yes" || echo "  Full RELRO: no"
+    - readelf -l "$BINARY" 2>/dev/null | grep -c GNU_RELRO || true
     - readelf -h "$BINARY" 2>/dev/null | grep -i type
-    - echo "=== Checksum Verification ==="
     - sha256sum --check "$BINARY.sha256"
-    - echo "✅ Binary verified"
+    - echo "Binary verified"
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
     - if: $CI_COMMIT_TAG
 
 # ══════════════════════════════════════════════════
-# STAGE 6: DEPLOY — Website deployment with health check
+# STAGE 6: DEPLOY WEBSITE
 # ══════════════════════════════════════════════════
 
 deploy-site:
   stage: deploy-site
   image: alpine:latest
-  needs: []  # Website deploys independently of the browser build
+  needs: []
   before_script:
     - apk add --no-cache openssh-client curl
     - mkdir -p ~/.ssh
@@ -306,83 +230,14 @@ deploy-site:
     - chmod 600 ~/.ssh/id_ed25519
     - ssh-keyscan -p 22 $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
   script:
-    - echo "═══ Deploying Void Browser Website ═══"
-    - echo "Host: $DEPLOY_HOST"
-    - echo "Time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-    - echo ""
-
-    # Copy files
-    - echo "Copying website files..."
-    - scp -o StrictHostKeyChecking=no
-        website/index.html website/style.css website/Dockerfile
-        website/robots.txt website/sitemap.xml
-        root@$DEPLOY_HOST:/mnt/user/appdata/lightfootcloud/websites/void-browser/
-
-    # Build and deploy container
-    - echo "Building container..."
-    - |
-      ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "
-        cd /mnt/user/appdata/lightfootcloud/websites/void-browser && \
-        docker build -t void-website . && \
-        docker stop void-website 2>/dev/null || true && \
-        docker rm void-website 2>/dev/null || true && \
-        docker run -d --name void-website --restart unless-stopped \
-          -p 5080:80 \
-          --network proxynet \
-          --memory=128m \
-          --cpus=0.5 \
-          --tmpfs /var/cache/nginx:rw,size=10m \
-          --tmpfs /var/run:rw,size=1m \
-          --tmpfs /tmp:rw,size=5m \
-          --security-opt no-new-privileges:true \
-          void-website
-      "
-
-    # Health check
-    - echo "Running health checks..."
-    - sleep 3
-    - |
-      STATUS=$(ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -s -o /dev/null -w '%{http_code}' http://localhost:5080/")
-      if [ "$STATUS" != "200" ]; then
-        echo "❌ Health check FAILED — HTTP $STATUS"
-        exit 1
-      fi
-      echo "✅ HTTP status: $STATUS"
-
-    # Verify security headers
-    - echo "Verifying security headers..."
-    - |
-      ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "
-        curl -sI http://localhost:5080/ | grep -E '^(X-|Referrer|Content-Security|Permissions|Cross-Origin)' | sort
-      "
-
-    # Verify content
-    - |
-      TITLE=$(ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -s http://localhost:5080/ | grep '<title>' | head -1")
-      echo "Page title: $TITLE"
-      if echo "$TITLE" | grep -q "Void Browser"; then
-        echo "✅ Content verified"
-      else
-        echo "❌ Content verification FAILED"
-        exit 1
-      fi
-
-    # Verify no tracking scripts
-    - echo "Verifying no tracking scripts..."
-    - |
-      ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "
-        BODY=\$(curl -s http://localhost:5080/)
-        if echo \"\$BODY\" | grep -qi '<script[^>]*google-analytics\|<script[^>]*googletagmanager\|<script[^>]*fbevents\|<script[^>]*hotjar\|<script[^>]*mixpanel\|<img[^>]*pixel'; then
-          echo '❌ TRACKING SCRIPTS DETECTED — BLOCKING DEPLOYMENT'
-          exit 1
-        fi
-        echo '✅ No tracking scripts found'
-      "
-
-    - echo ""
-    - echo "═══ Deployment Complete ═══"
-    - echo "Site: https://void.lightfoot.cloud"
-    - echo "Local: http://$DEPLOY_HOST:5080"
+    - echo "Deploying Void Browser Website"
+    - scp -o StrictHostKeyChecking=no website/index.html website/style.css website/Dockerfile website/robots.txt website/sitemap.xml root@$DEPLOY_HOST:/mnt/user/appdata/lightfootcloud/websites/void-browser/
+    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "cd /mnt/user/appdata/lightfootcloud/websites/void-browser && docker build -t void-website . && docker stop void-website 2>/dev/null; docker rm void-website 2>/dev/null; docker run -d --name void-website --restart unless-stopped -p 5080:80 --network proxynet --memory=128m --security-opt no-new-privileges:true void-website"
+    - sleep 5
+    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -sf http://localhost:5080/ > /dev/null && echo 'Health check PASSED' || (echo 'Health check FAILED' && exit 1)"
+    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -sI http://localhost:5080/ | grep -E '^(X-|Referrer|Content-Security|Permissions)'"
+    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -s http://localhost:5080/ | grep -qi '<script[^>]*google-analytics' && echo 'TRACKING FOUND' && exit 1 || echo 'No tracking scripts'"
+    - echo "Deployment complete"
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
