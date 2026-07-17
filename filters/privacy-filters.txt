@@ -1,0 +1,76 @@
+[Adblock Plus 2.0]
+! Title: Void Browser — Privacy & Tracker Filters
+! Description: Blocks analytics, fingerprinting, and tracking scripts
+! Homepage: https://github.com/lightfootcloud/void-browser
+! License: GPL-3.0
+
+! ── Analytics ─────────────────────────────────────
+||google-analytics.com^
+||analytics.google.com^
+||ssl.google-analytics.com^
+||stats.g.doubleclick.net^
+||clarity.ms^
+||hotjar.com^
+||mixpanel.com^
+||segment.io^
+||segment.com^
+||amplitude.com^
+||heapanalytics.com^
+||fullstory.com^
+||mouseflow.com^
+||crazyegg.com^
+||smartlook.com^
+||logrocket.com^
+||luckyorange.com^
+||statcounter.com^
+||quantserve.com^
+||scorecardresearch.com^
+||comscore.com^
+
+! ── Fingerprinting ────────────────────────────────
+||fingerprintjs.com^
+||cdn.jsdelivr.net/npm/@fingerprintjs^
+||fpjs.io^
+||browserleaks.com/canvas^
+
+! ── Tracking Pixels ───────────────────────────────
+||px.ads.linkedin.com^
+||snap.licdn.com^
+||ct.pinterest.com^
+||t.co^
+||analytics.tiktok.com^
+||sc-static.net/scevent.min.js^
+
+! ── Session Recording ─────────────────────────────
+||d2dq2ahtl5zl1z.cloudfront.net^$third-party
+||cdn.mxpnl.com^
+||cdn.heapanalytics.com^
+||static.hotjar.com^
+
+! ── Data Brokers ──────────────────────────────────
+||bluekai.com^
+||exelator.com^
+||everesttech.net^
+||demdex.net^
+||krxd.net^
+||rlcdn.com^
+||liadm.com^
+||eyeota.net^
+||narrativ.com^
+
+! ── Telemetry ─────────────────────────────────────
+||telemetry.mozilla.org^
+||incoming.telemetry.mozilla.org^
+||vortex.data.microsoft.com^
+||watson.telemetry.microsoft.com^
+||settings-win.data.microsoft.com^
+||sentry.io^$third-party
+||bugsnag.com^$third-party
+||newrelic.com^$third-party
+||nr-data.net^
+
+! ── Social Tracking Widgets ───────────────────────
+||platform.twitter.com/widgets.js^$third-party
+||connect.facebook.net/en_US/fbevents.js^
+||platform.linkedin.com/in.js^$third-party
+||apis.google.com/js/plusone.js^$third-party

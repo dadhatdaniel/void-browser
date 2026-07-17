@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Void Browser — No tracking. No AI. Just browsing.</title>
+  <meta name="description" content="A minimal, secure, privacy-first web browser. Built by one person. No VC. No telemetry. No bullshit.">
+  <meta property="og:title" content="Void Browser">
+  <meta property="og:description" content="No tracking. No AI. Just browsing.">
+  <meta property="og:type" content="website">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Nav -->
+  <nav>
+    <div class="nav-inner">
+      <a href="/" class="logo">VOID</a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#security">Security</a>
+        <a href="#download">Download</a>
+        <a href="https://gitlab.lightfoot.cloud/lightfootcloud/void-browser" class="nav-source">Source</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section id="hero">
+    <div class="hero-content">
+      <div class="hero-badge">v0.1.0 — Early Access</div>
+      <h1>VOID</h1>
+      <p class="hero-tagline">No tracking. No AI. Just browsing.</p>
+      <p class="hero-desc">
+        A minimal, secure, privacy-first browser built with Rust.<br>
+        Tiny footprint. Zero telemetry. Your data stays yours.
+      </p>
+      <div class="hero-cta">
+        <a href="#download" class="btn btn-primary">Download</a>
+        <a href="#features" class="btn btn-ghost">Learn More</a>
+      </div>
+      <div class="hero-stats">
+        <div class="hero-stat">
+          <span class="hero-stat-value">&lt;10MB</span>
+          <span class="hero-stat-label">Install Size</span>
+        </div>
+        <div class="hero-stat-divider"></div>
+        <div class="hero-stat">
+          <span class="hero-stat-value">0</span>
+          <span class="hero-stat-label">Trackers</span>
+        </div>
+        <div class="hero-stat-divider"></div>
+        <div class="hero-stat">
+          <span class="hero-stat-value">0</span>
+          <span class="hero-stat-label">AI Features</span>
+        </div>
+        <div class="hero-stat-divider"></div>
+        <div class="hero-stat">
+          <span class="hero-stat-value">Rust</span>
+          <span class="hero-stat-label">Built With</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- What's Different -->
+  <section id="manifesto">
+    <div class="container">
+      <h2>Every browser wants your data.<br>We want none of it.</h2>
+      <p class="manifesto-text">
+        Chrome sells your attention. Firefox adds AI. Safari locks you in.
+        Brave has crypto. Arc has profiles of you.<br><br>
+        Void has none of that. It's a browser. It browses.
+        That's it. That's the product.
+      </p>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section id="features">
+    <div class="container">
+      <h2>What you get</h2>
+      <div class="features-grid">
+        <div class="feature">
+          <div class="feature-icon">🛡️</div>
+          <h3>Built-in Ad Blocker</h3>
+          <p>Powered by the same engine as Brave. Blocks ads, trackers, and malware domains out of the box. No extensions needed.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">🔒</div>
+          <h3>HTTPS-Only Mode</h3>
+          <p>Strict HTTPS enforcement by default. Insecure connections are blocked, not just warned about.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">👻</div>
+          <h3>Anti-Fingerprinting</h3>
+          <p>Canvas, WebGL, and AudioContext fingerprinting resistance. Makes you look like everyone else.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">🚫</div>
+          <h3>Zero Telemetry</h3>
+          <p>No usage analytics. No crash reports sent home. No "anonymous" data collection. Nothing leaves your machine.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">⚡</div>
+          <h3>Tiny & Fast</h3>
+          <p>Under 10MB installed. Uses your OS's native webview instead of shipping an entire Chromium. Starts in milliseconds.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">🎨</div>
+          <h3>Customizable</h3>
+          <p>Dark, Light, and Midnight (OLED) themes. Custom CSS injection. Configurable keybinds. Your browser, your rules.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">🔐</div>
+          <h3>DNS over HTTPS</h3>
+          <p>Built-in DoH with Quad9, Cloudflare, or Mullvad. Your ISP can't see your DNS queries.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">📋</div>
+          <h3>Local Config</h3>
+          <p>Everything stored in a plain TOML file on your machine. No account. No cloud. No sync. Just a file you own.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Security Levels -->
+  <section id="security">
+    <div class="container">
+      <h2>Three levels of paranoia</h2>
+      <p class="section-desc">Pick your comfort level. All of them are better than Chrome's defaults.</p>
+      <div class="security-levels">
+        <div class="security-card">
+          <div class="security-level-badge standard">Standard</div>
+          <h3>Everyday Browsing</h3>
+          <ul>
+            <li>Ad & tracker blocking</li>
+            <li>Referrer stripping</li>
+            <li>HTTPS upgrades</li>
+            <li>DNT & GPC headers</li>
+          </ul>
+        </div>
+        <div class="security-card featured">
+          <div class="security-level-badge strict">Strict</div>
+          <div class="recommended">Default</div>
+          <h3>Privacy-Focused</h3>
+          <ul>
+            <li>Everything in Standard, plus:</li>
+            <li>Third-party cookie blocking</li>
+            <li>WebRTC leak prevention</li>
+            <li>Canvas fingerprint resistance</li>
+            <li>Telemetry domain blocking</li>
+          </ul>
+        </div>
+        <div class="security-card">
+          <div class="security-level-badge paranoid">Paranoid</div>
+          <h3>Maximum Protection</h3>
+          <ul>
+            <li>Everything in Strict, plus:</li>
+            <li>Full fingerprint resistance</li>
+            <li>JavaScript disabled by default</li>
+            <li>Timezone spoofing</li>
+            <li>Font enumeration blocking</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- What we don't have -->
+  <section id="no-features">
+    <div class="container">
+      <h2>What we proudly don't have</h2>
+      <div class="no-features-grid">
+        <div class="no-feature">
+          <span class="no-icon">✕</span>
+          <span>AI assistant</span>
+        </div>
+        <div class="no-feature">
+          <span class="no-icon">✕</span>
+          <span>Cryptocurrency wallet</span>
+        </div>
+        <div class="no-feature">
+          <span class="no-icon">✕</span>
+          <span>Built-in VPN upsell</span>
+        </div>
+        <div class="no-feature">
+          <span class="no-icon">✕</span>
+          <span>User accounts</span>
+        </div>
+        <div class="no-feature">
+          <span class="no-icon">✕</span>
+          <span>Cloud sync</span>
+        </div>
+        <div class="no-feature">
+          <span class="no-icon">✕</span>
+          <span>Telemetry</span>
+        </div>
+        <div class="no-feature">
+          <span class="no-icon">✕</span>
+          <span>News feed</span>
+        </div>
+        <div class="no-feature">
+          <span class="no-icon">✕</span>
+          <span>Sponsored shortcuts</span>
+        </div>
+        <div class="no-feature">
+          <span class="no-icon">✕</span>
+          <span>Pocket integration</span>
+        </div>
+        <div class="no-feature">
+          <span class="no-icon">✕</span>
+          <span>Social features</span>
+        </div>
+        <div class="no-feature">
+          <span class="no-icon">✕</span>
+          <span>Password manager upsell</span>
+        </div>
+        <div class="no-feature">
+          <span class="no-icon">✕</span>
+          <span>Usage analytics</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Download -->
+  <section id="download">
+    <div class="container">
+      <h2>Get Void</h2>
+      <p class="section-desc">Free. Open source. Forever.</p>
+      <div class="download-grid">
+        <a href="#" class="download-card">
+          <div class="download-icon">🐧</div>
+          <h3>Linux</h3>
+          <div class="download-formats">
+            <span>.deb</span>
+            <span>.AppImage</span>
+          </div>
+          <span class="download-size">~8 MB</span>
+        </a>
+        <a href="#" class="download-card">
+          <div class="download-icon">🍎</div>
+          <h3>macOS</h3>
+          <div class="download-formats">
+            <span>.dmg</span>
+          </div>
+          <span class="download-size">~9 MB</span>
+        </a>
+        <a href="#" class="download-card">
+          <div class="download-icon">🪟</div>
+          <h3>Windows</h3>
+          <div class="download-formats">
+            <span>.msi</span>
+            <span>.exe</span>
+          </div>
+          <span class="download-size">~7 MB</span>
+        </a>
+      </div>
+      <p class="build-note">
+        Or build from source:
+        <code>git clone https://gitlab.lightfoot.cloud/lightfootcloud/void-browser && cd void-browser && cargo tauri build</code>
+      </p>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container footer-inner">
+      <div class="footer-left">
+        <span class="footer-logo">VOID</span>
+        <span class="footer-copy">Built by one person. No VC. No telemetry. No bullshit.</span>
+      </div>
+      <div class="footer-links">
+        <a href="https://gitlab.lightfoot.cloud/lightfootcloud/void-browser">Source Code</a>
+        <a href="https://gitlab.lightfoot.cloud/lightfootcloud/void-browser/-/blob/main/LICENSE">License (GPL-3.0)</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // Smooth scroll
+    document.querySelectorAll('a[href^="#"]').forEach(a => {
+      a.addEventListener('click', e => {
+        e.preventDefault();
+        document.querySelector(a.getAttribute('href'))?.scrollIntoView({ behavior: 'smooth' });
+      });
+    });
+
+    // Nav background on scroll
+    const nav = document.querySelector('nav');
+    window.addEventListener('scroll', () => {
+      nav.classList.toggle('scrolled', window.scrollY > 50);
+    });
+  </script>
+</body>
+</html>

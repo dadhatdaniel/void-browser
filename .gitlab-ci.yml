@@ -1,0 +1,106 @@
+# ═══════════════════════════════════════════════════
+# Void Browser — GitLab CI/CD Pipeline
+# Build, test, package, and deploy
+# ═══════════════════════════════════════════════════
+
+stages:
+  - lint
+  - build
+  - package
+  - deploy-site
+
+variables:
+  CARGO_HOME: /tmp/cargo
+  RUST_BACKTRACE: "1"
+
+# ── Lint & Check ──────────────────────────────────
+
+lint:
+  stage: lint
+  image: rust:1.80
+  script:
+    - cd src-tauri
+    - rustup component add clippy rustfmt
+    - cargo fmt --check
+    - cargo clippy -- -D warnings
+  cache:
+    key: rust-cache
+    paths:
+      - src-tauri/target/
+  only:
+    - merge_requests
+    - main
+
+# ── Build (Linux) ────────────────────────────────
+
+build-linux:
+  stage: build
+  image: rust:1.80
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+    - cargo install tauri-cli --version "^2"
+  script:
+    - cd src-tauri
+    - cargo build --release
+  artifacts:
+    paths:
+      - src-tauri/target/release/void-browser
+    expire_in: 7 days
+  cache:
+    key: rust-build-cache
+    paths:
+      - src-tauri/target/
+  only:
+    - main
+    - tags
+
+# ── Package (Linux) ──────────────────────────────
+
+package-linux:
+  stage: package
+  image: rust:1.80
+  needs: ["build-linux"]
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+    - cargo install tauri-cli --version "^2"
+  script:
+    - cargo tauri build
+  artifacts:
+    paths:
+      - src-tauri/target/release/bundle/deb/*.deb
+      - src-tauri/target/release/bundle/appimage/*.AppImage
+    expire_in: 30 days
+  only:
+    - tags
+
+# ── Deploy Website ───────────────────────────────
+
+deploy-site:
+  stage: deploy-site
+  image: docker:latest
+  services:
+    - docker:dind
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+  script:
+    - cd website
+    - docker build -t void-website .
+    # Deploy to Unraid
+    - |
+      ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no root@$DEPLOY_HOST "
+        docker stop void-website 2>/dev/null || true
+        docker rm void-website 2>/dev/null || true
+      "
+    - docker save void-website | ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no root@$DEPLOY_HOST 'docker load'
+    - |
+      ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no root@$DEPLOY_HOST "
+        docker run -d --name void-website --restart unless-stopped \
+          -p 5080:80 \
+          --network proxynet \
+          void-website
+      "
+  only:
+    - main
+  when: manual

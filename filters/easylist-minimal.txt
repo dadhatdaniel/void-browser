@@ -1,0 +1,75 @@
+[Adblock Plus 2.0]
+! Title: Void Browser — Core Ad Filters
+! Description: Minimal ad blocking rules based on EasyList patterns
+! Homepage: https://github.com/lightfootcloud/void-browser
+! License: GPL-3.0
+!
+! NOTE: In production, download full EasyList + EasyPrivacy at build time.
+! This is a minimal bootstrapped set for development.
+
+! ── Generic Ad Patterns ──────────────────────────
+||doubleclick.net^
+||googlesyndication.com^
+||googleadservices.com^
+||google-analytics.com^
+||googletagmanager.com^
+||pagead2.googlesyndication.com^
+||adservice.google.com^
+||adsense.google.com^
+
+! ── Facebook/Meta ─────────────────────────────────
+||facebook.com/tr^
+||connect.facebook.net^
+||pixel.facebook.com^
+||an.facebook.com^
+
+! ── Amazon Ads ────────────────────────────────────
+||aax.amazon-adsystem.com^
+||fls-na.amazon.com^
+||device-metrics-us.amazon.com^
+
+! ── Microsoft Ads ─────────────────────────────────
+||bat.bing.com^
+||ads.microsoft.com^
+
+! ── Twitter/X ─────────────────────────────────────
+||ads-api.twitter.com^
+||analytics.twitter.com^
+
+! ── Common Ad Networks ────────────────────────────
+||adroll.com^
+||criteo.com^
+||outbrain.com^
+||taboola.com^
+||revealbot.com^
+||pubmatic.com^
+||rubiconproject.com^
+||openx.net^
+||appnexus.com^
+||moatads.com^
+||adsrvr.org^
+||casalemedia.com^
+||indexexchange.com^
+||mediamath.com^
+||admob.com^
+||inmobi.com^
+||unity3d.com/ads^
+
+! ── Popups & Overlays ─────────────────────────────
+||popup-*.js^
+||pop-up*.js^
+||popunder.js^
+||interstitial*.js^
+
+! ── Generic Cosmetic Filters ──────────────────────
+##.ad-banner
+##.ad-container
+##.ad-wrapper
+##.adsbox
+##.advertisement
+##[id^="ad-"]
+##[class*="ad-slot"]
+##[class*="sponsored"]
+##[data-ad]
+##.google-ads
+##.dfp-ad
