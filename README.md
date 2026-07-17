@@ -6,10 +6,12 @@
 
 A minimal, secure, privacy-first web browser built with [Tauri](https://tauri.app) and Rust.
 
-[![Build Linux](https://img.shields.io/badge/Linux-deb%20%7C%20AppImage-FCC624?logo=linux&logoColor=black)](https://void.lightfoot.cloud)
-[![Build macOS & Windows](https://github.com/dadhatdaniel/void-browser/actions/workflows/build-macos.yml/badge.svg)](https://github.com/dadhatdaniel/void-browser/actions/workflows/build-macos.yml)
+[![Build & Release](https://github.com/dadhatdaniel/void-browser/actions/workflows/build.yml/badge.svg)](https://github.com/dadhatdaniel/void-browser/actions/workflows/build.yml)
+[![Linux](https://img.shields.io/badge/Linux-deb%20%7C%20AppImage-FCC624?logo=linux&logoColor=black)](https://github.com/dadhatdaniel/void-browser/releases)
 [![Windows](https://img.shields.io/badge/Windows-msi%20%7C%20exe-0078D4?logo=windows&logoColor=white)](https://github.com/dadhatdaniel/void-browser/releases)
+[![macOS](https://img.shields.io/badge/macOS-dmg-000000?logo=apple&logoColor=white)](https://github.com/dadhatdaniel/void-browser/releases)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL%203.0-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![GitHub stars](https://img.shields.io/github/stars/dadhatdaniel/void-browser?style=social)](https://github.com/dadhatdaniel/void-browser)
 
 ---
 
