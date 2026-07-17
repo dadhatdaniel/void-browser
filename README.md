@@ -143,9 +143,16 @@ void-browser/
 | Platform | What it builds | Trigger |
 |----------|---------------|---------|
 | **GitLab** (internal) | Lint, audit, license check, VirusTotal scan, website deploy, **site E2E smoke** | Every `main` push (+ tags for scan) |
-| **GitHub Actions** | Linux/Windows/macOS installers (`.deb`, `.AppImage`, `.msi`, `.exe`, `.dmg`) | Tags `v*` only |
+| **GitHub Actions** | Linux/Windows/macOS installers (`.deb`, `.AppImage`, `.msi`, `.exe`, `.dmg`) | Tags `v*` **or** manual **Run workflow** |
 
-Source of truth is GitLab (`lightfootcloud/void-browser`). Do not push releases from this workspace to GitHub — the mirror handles it.
+Source of truth is GitLab (`lightfootcloud/void-browser`). Do not push releases from this workspace to GitHub — the mirror handles git refs.
+
+**GitHub Actions not starting after a tag?** GitLab→GitHub push mirroring often updates tag refs without a tag `PushEvent`, and the CI `GITHUB_TOKEN` may lack `actions:write` / classic `workflow` scope (dispatch returns 403). Fix:
+
+1. Actions → **Build & Release** → **Run workflow** → choose tag (e.g. `v0.1.0-alpha.8`), or
+2. Give the mirror / `GITHUB_TOKEN` a classic PAT with `repo` + `workflow` (or fine-grained **Workflows: Read and write**), then re-push / re-dispatch.
+
+**Updater signing:** set `TAURI_SIGNING_PRIVATE_KEY` (+ optional password) as secrets on GitHub Environment `release` so tag builds publish `latest.json` + `.sig` artifacts. Without it, installers still build; in-app updates stay unavailable.
 
 ### Windows `.exe` smoke (manual)
 

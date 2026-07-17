@@ -21,6 +21,7 @@ stages:
   - scan
   - deploy-site
   - e2e
+  - notify
 
 variables:
   CARGO_HOME: "${CI_PROJECT_DIR}/.cargo"
@@ -231,7 +232,7 @@ site-e2e:
 # Requires GITHUB_TOKEN with Actions: write (workflow scope).
 
 trigger-github-build:
-  stage: deploy-site
+  stage: notify
   image: alpine:latest
   needs: []
   rules:
@@ -261,6 +262,7 @@ trigger-github-build:
       fi
       if [ "$code" = "403" ] || [ "$code" = "401" ]; then
         echo "BLOCKER: GITHUB_TOKEN lacks actions:write — open Actions → Build & Release → Run workflow on tag $CI_COMMIT_TAG"
+        echo "Also ensure TAURI_SIGNING_PRIVATE_KEY is set on GitHub Environment 'release' for updater artifacts."
         exit 1
       fi
       echo "Unexpected response"
