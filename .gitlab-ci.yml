@@ -104,8 +104,8 @@ virus-scan:
   timeout: 2h
   needs: []
   variables:
-    # Bump when a newer GitHub Release exists with assets (alpha.4 build failed; keep alpha.3 until alpha.5+)
-    VT_RELEASE_TAG: "v0.1.0-alpha.3"
+    # Bump when a newer GitHub Release exists with assets
+    VT_RELEASE_TAG: "v0.1.0-alpha.5"
     VT_WEBSITE_URL: "https://void.lightfoot.cloud"
   script:
     - |

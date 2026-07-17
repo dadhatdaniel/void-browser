@@ -156,9 +156,15 @@ After a green **Build & Release** for a new tag:
 3. Install, launch Void, confirm: new tab, navigate to `https://example.com`, back/forward/reload, open Settings and toggle a preference, quit and relaunch (settings persist).
 4. Expect SmartScreen / AV warnings on unsigned builds — see [docs/CODE_SIGNING.md](docs/CODE_SIGNING.md).
 
+## Updates
+
+Installed builds can check for updates from [GitHub Releases](https://github.com/dadhatdaniel/void-browser/releases) (quiet prompt on launch, or **Settings → Check for updates**). Updates are signed with Tauri’s minisign/ed25519 updater keys.
+
+See **[docs/UPDATE.md](docs/UPDATE.md)** for how `latest.json` is published and which GitHub Actions secrets are required (`TAURI_SIGNING_PRIVATE_KEY`).
+
 ## Security
 
-- **Signed releases** — SHA-256 checksums on all packages
+- **Signed releases** — SHA-256 checksums on all packages; updater artifacts signed when CI secrets are set
 - **Dependency auditing** — `cargo audit` on every build
 - **License compliance** — Automated scanning
 - **Zero tracking website** — [void.lightfoot.cloud](https://void.lightfoot.cloud) uses no cookies, no analytics, no tracking

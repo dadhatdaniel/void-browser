@@ -9,6 +9,7 @@ mod config;
 mod gpu;
 mod privacy;
 mod tabs;
+mod updater;
 
 use browser::BrowserState;
 use config::VoidConfig;
@@ -115,6 +116,9 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState {
             config: Mutex::new(config),
             blocker: Mutex::new(blocker),
@@ -123,6 +127,7 @@ fn main() {
         .manage(BrowserState::default())
         .setup(|app| {
             browser::attach_resize_handler(&app.handle())?;
+            updater::spawn_startup_check(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -136,6 +141,7 @@ fn main() {
             close_tab,
             list_tabs,
             set_active_tab,
+            updater::check_for_updates,
             browser::set_chrome_height,
             browser::navigate_browser,
             browser::show_browser_content,

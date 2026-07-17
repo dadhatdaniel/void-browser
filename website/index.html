@@ -431,6 +431,10 @@
         Early-access builds are <strong>not code-signed</strong> yet. macOS Gatekeeper and Windows SmartScreen may warn — that is expected until Apple Developer ID and Windows Authenticode signing are set up.
         See <a href="https://github.com/dadhatdaniel/void-browser/blob/main/docs/CODE_SIGNING.md" rel="noopener noreferrer">code signing docs</a>.
       </p>
+      <p class="download-unsigned-note">
+        Installed builds can <strong>check for updates</strong> from GitHub Releases (Settings → Check for updates, or a quiet prompt on launch). That HTTPS check is the only network call for updates — no telemetry.
+        See <a href="https://github.com/dadhatdaniel/void-browser/blob/main/docs/UPDATE.md" rel="noopener noreferrer">update docs</a>.
+      </p>
 
       <!-- Verification -->
       <div class="verification-info">
@@ -458,6 +462,10 @@
         <div class="faq-item">
           <h3>Is Void really free?</h3>
           <p>Yes. Free as in freedom and free as in beer. GPL-3.0 licensed. No premium version. No paid features. Ever.</p>
+        </div>
+        <div class="faq-item">
+          <h3>Does Void auto-update?</h3>
+          <p>Yes, optionally. The app can check GitHub Releases for a newer version and offer Install &amp; Relaunch. That HTTPS check is the only update-related network call — still zero telemetry.</p>
         </div>
         <div class="faq-item">
           <h3>What engine does it use?</h3>

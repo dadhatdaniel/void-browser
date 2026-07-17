@@ -22,3 +22,10 @@ Thumbs.db
 *.dmg
 *.msi
 *.exe
+
+# Tauri updater signing keys (never commit private keys)
+*.key
+!*.key.pub
+void-browser-updater.key
+.env
+.env.*

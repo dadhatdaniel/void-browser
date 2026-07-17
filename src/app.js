@@ -545,6 +545,25 @@ shieldBtn.addEventListener('click', async () => {
 
 document.getElementById('settings-save-btn')?.addEventListener('click', saveSettings);
 
+document.getElementById('check-updates-btn')?.addEventListener('click', async () => {
+  const status = document.getElementById('update-status');
+  const btn = document.getElementById('check-updates-btn');
+  if (status) status.textContent = 'Checking…';
+  if (btn) btn.disabled = true;
+  try {
+    const result = await invoke('check_for_updates');
+    if (status) {
+      status.textContent = result?.message
+        || (result?.updateAvailable ? `Update ${result.latestVersion} available` : 'Up to date');
+    }
+  } catch (e) {
+    console.error('[void] update check failed', e);
+    if (status) status.textContent = `Check failed: ${e}`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+});
+
 document.getElementById('theme-select')?.addEventListener('change', (e) => {
   document.documentElement.setAttribute('data-theme', themeCssName(e.target.value));
 });

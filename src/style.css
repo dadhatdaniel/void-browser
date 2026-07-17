@@ -441,7 +441,8 @@ body {
   margin-top: 8px;
 }
 
-#settings-save-btn {
+#settings-save-btn,
+#check-updates-btn {
   background: var(--accent);
   color: #fff;
   border: none;
@@ -452,7 +453,24 @@ body {
   cursor: pointer;
 }
 
-#settings-save-btn:hover { background: var(--accent-hover); }
+#check-updates-btn {
+  padding: 8px 14px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+#settings-save-btn:hover,
+#check-updates-btn:hover { background: var(--accent-hover); }
+
+#check-updates-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+#update-status {
+  flex: 1;
+  text-align: right;
+}
 
 #settings-status { font-size: 12px; color: var(--text-muted); }
 #settings-status.ok { color: var(--success); }

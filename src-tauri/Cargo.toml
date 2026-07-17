@@ -1,6 +1,6 @@
 [package]
 name = "void-browser"
-version = "0.1.0"
+version = "0.1.0-alpha.5"
 description = "Void — A minimal, secure, privacy-first browser"
 authors = ["Daniel Lightfoot"]
 license = "GPL-3.0"
@@ -12,6 +12,9 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "unstable"] }
 tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-process = "2"
+tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", features = ["blocking"] }
