@@ -158,13 +158,14 @@ After a green **Build & Release** for a new tag:
 
 ## Updates
 
-Installed builds can check for updates from [GitHub Releases](https://github.com/dadhatdaniel/void-browser/releases) (quiet prompt on launch, or **Settings → Check for updates**). Updates are signed with Tauri’s minisign/ed25519 updater keys.
+Installed builds can check for updates from [GitHub Releases](https://github.com/dadhatdaniel/void-browser/releases) (quiet prompt on launch, or **Settings → Check for updates**). Updates are signed with Tauri’s minisign/ed25519 updater keys; clients refuse install if the signature does not match the pinned public key.
 
-See **[docs/UPDATE.md](docs/UPDATE.md)** for how `latest.json` is published and which GitHub Actions secrets are required (`TAURI_SIGNING_PRIVATE_KEY`).
+See **[docs/UPDATE.md](docs/UPDATE.md)** for how `latest.json` is published and **[docs/SECURITY.md](docs/SECURITY.md)** for the fake-update threat model and enterprise checklist (`TAURI_SIGNING_PRIVATE_KEY` on Environment `release`).
 
 ## Security
 
-- **Signed releases** — SHA-256 checksums on all packages; updater artifacts signed when CI secrets are set
+- **Updater dual control** — GitHub access ≠ update trust; private signing key is separate (see [docs/SECURITY.md](docs/SECURITY.md))
+- **Signed updater artifacts** — SHA-256 checksums on packages; minisign updater signatures when CI secrets are set
 - **Dependency auditing** — `cargo audit` on every build
 - **License compliance** — Automated scanning
 - **Zero tracking website** — [void.lightfoot.cloud](https://void.lightfoot.cloud) uses no cookies, no analytics, no tracking

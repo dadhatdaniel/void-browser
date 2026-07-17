@@ -26,7 +26,6 @@
     "core:event:default",
     "core:tray:default",
     "shell:allow-open",
-    "updater:default",
     "dialog:default",
     "process:allow-restart",
     "process:allow-exit"

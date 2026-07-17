@@ -118,7 +118,12 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(
+            // Pubkey pinned in Rust as well as tauri.conf.json — never disable verification.
+            tauri_plugin_updater::Builder::new()
+                .pubkey(updater::UPDATER_PUBKEY)
+                .build(),
+        )
         .manage(AppState {
             config: Mutex::new(config),
             blocker: Mutex::new(blocker),

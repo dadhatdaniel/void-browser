@@ -432,8 +432,10 @@
         See <a href="https://github.com/dadhatdaniel/void-browser/blob/main/docs/CODE_SIGNING.md" rel="noopener noreferrer">code signing docs</a>.
       </p>
       <p class="download-unsigned-note">
-        Installed builds can <strong>check for updates</strong> from GitHub Releases (Settings → Check for updates, or a quiet prompt on launch). That HTTPS check is the only network call for updates — no telemetry.
-        See <a href="https://github.com/dadhatdaniel/void-browser/blob/main/docs/UPDATE.md" rel="noopener noreferrer">update docs</a>.
+        Installed builds can <strong>check for updates</strong> from GitHub Releases (Settings → Check for updates, or a quiet prompt on launch).
+        Updates are <strong>cryptographically signed</strong> and verified with a public key baked into the app before install — GitHub account access alone cannot push a trusted update.
+        That HTTPS check is the only network call for updates — no telemetry.
+        See <a href="https://github.com/dadhatdaniel/void-browser/blob/main/docs/SECURITY.md" rel="noopener noreferrer">update security</a>.
       </p>
 
       <!-- Verification -->
@@ -465,7 +467,7 @@
         </div>
         <div class="faq-item">
           <h3>Does Void auto-update?</h3>
-          <p>Yes, optionally. The app can check GitHub Releases for a newer version and offer Install &amp; Relaunch. That HTTPS check is the only update-related network call — still zero telemetry.</p>
+          <p>Yes, optionally. The app can check GitHub Releases for a newer version and offer Install &amp; Relaunch. Every update package is signature-verified against a pinned public key before install — unsigned or tampered updates are rejected. That HTTPS check is the only update-related network call — still zero telemetry.</p>
         </div>
         <div class="faq-item">
           <h3>What engine does it use?</h3>

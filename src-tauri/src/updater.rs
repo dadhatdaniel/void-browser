@@ -1,12 +1,24 @@
 //! In-app updates via GitHub Releases + tauri-plugin-updater.
 //!
-//! Privacy: the only network call is HTTPS to the configured updater endpoint
+//! Trust model: signature verification is mandatory (minisign/ed25519). The
+//! public key and endpoint are pinned in Rust so the webview cannot redirect
+//! checks or disable verification. See docs/SECURITY.md.
+//!
+//! Privacy: the only network call is HTTPS to the pinned updater endpoint
 //! (GitHub Releases `latest.json`) and, if the user accepts, the signed update
 //! asset URL. No telemetry beyond that.
 
 use tauri::{AppHandle, Runtime};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_updater::UpdaterExt;
+use url::Url;
+
+/// Must match `plugins.updater.pubkey` in tauri.conf.json.
+pub const UPDATER_PUBKEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM0NENDRTA4RTlEOTVEMjcKUldRblhkbnBDTTVNTkZWTGpNL0xKVEo5UGU5LzBLSVVQRzV5MmFlUEY4SGpQRSt5RVpTTUpmdEYK";
+
+/// Only trusted manifest URL — not configurable from JS.
+pub const UPDATER_ENDPOINT: &str =
+    "https://github.com/dadhatdaniel/void-browser/releases/latest/download/latest.json";
 
 /// Result returned to the Settings UI.
 #[derive(serde::Serialize)]
@@ -44,8 +56,16 @@ async fn check_and_prompt<R: Runtime>(
 ) -> Result<UpdateCheckResult, String> {
     let current = app.package_info().version.to_string();
 
+    let endpoint = Url::parse(UPDATER_ENDPOINT)
+        .map_err(|e| format!("invalid pinned updater endpoint: {e}"))?;
+
+    // Pin endpoint + pubkey at check time. Never call dangerous* overrides.
     let updater = app
-        .updater()
+        .updater_builder()
+        .pubkey(UPDATER_PUBKEY)
+        .endpoints(vec![endpoint])
+        .map_err(|e| format!("updater endpoints rejected: {e}"))?
+        .build()
         .map_err(|e| format!("updater unavailable: {e}"))?;
 
     let update = updater
@@ -75,6 +95,7 @@ async fn check_and_prompt<R: Runtime>(
         format!(
             "Version {latest} is available (you have {current}).\n\n\
              Download, install, and relaunch now?\n\n\
+             Updates are signature-verified before install. \
              Update checks contact GitHub Releases over HTTPS only — no telemetry."
         )
     } else {
@@ -82,6 +103,7 @@ async fn check_and_prompt<R: Runtime>(
             "Version {latest} is available (you have {current}).\n\n\
              {notes_trimmed}\n\n\
              Download, install, and relaunch now?\n\n\
+             Updates are signature-verified before install. \
              Update checks contact GitHub Releases over HTTPS only — no telemetry."
         )
     };
@@ -101,6 +123,7 @@ async fn check_and_prompt<R: Runtime>(
         });
     }
 
+    // download_and_install verifies the minisign signature against the pinned pubkey.
     update
         .download_and_install(|_chunk, _total| {}, || {})
         .await
@@ -128,11 +151,4 @@ fn ask_install<R: Runtime>(app: &AppHandle<R>, title: &str, message: &str) -> bo
         .title(title.to_string())
         .kind(MessageDialogKind::Info)
         .buttons(MessageDialogButtons::OkCancelCustom(
-            "Install & Relaunch".into(),
-            "Later".into(),
-        ))
-        .show(move |answer| {
-            let _ = tx.send(answer);
-        });
-    rx.recv().unwrap_or(false)
-}
+            "Install & Relaunch"

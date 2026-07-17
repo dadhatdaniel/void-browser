@@ -1,6 +1,8 @@
 # Code signing (macOS & Windows)
 
-Void Browser builds are **unsigned by default**. That is expected until paid certificates are configured. Unsigned installs often trigger:
+OS identity signing (SmartScreen / Gatekeeper) is **separate** from the Tauri updater signature model — see [SECURITY.md](./SECURITY.md) and [UPDATE.md](./UPDATE.md).
+
+Void Browser builds are **unsigned by default** at the OS level. That is expected until paid certificates are configured. Unsigned installs often trigger:
 
 - **macOS:** Gatekeeper — “Apple cannot check it for malicious software”
 - **Windows:** SmartScreen / Defender — “Windows protected your PC”
