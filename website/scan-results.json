@@ -1,0 +1,20 @@
+{
+  "status": "pending",
+  "provider": "VirusTotal",
+  "message": "Automated scans are not configured yet. Add VIRUSTOTAL_API_KEY as a GitLab CI/CD variable, then re-run the virus-scan job (or publish a release tag).",
+  "website": {
+    "url": "https://void.lightfoot.cloud",
+    "status": "not_scanned",
+    "permalink": null,
+    "positives": null,
+    "total": null
+  },
+  "release_tag": "v0.1.0-alpha.3",
+  "scanned_at": null,
+  "limitations": [
+    "macOS builds are unsigned — Gatekeeper may warn until notarized.",
+    "Windows builds are unsigned — SmartScreen / Defender may warn on first run.",
+    "VirusTotal aggregates many engines; a single unknown/heuristic hit is common for new unsigned software and is not proof of malware."
+  ],
+  "artifacts": []
+}

@@ -18,6 +18,7 @@
 stages:
   - lint
   - security
+  - scan
   - deploy-site
 
 variables:
@@ -91,6 +92,36 @@ license-check:
     - if: $CI_COMMIT_BRANCH == "main"
     - if: $CI_COMMIT_TAG
 
+# ── VIRUSTOTAL (optional) ────────────────────────
+# Add GitLab CI/CD variable: VIRUSTOTAL_API_KEY (masked, protected optional)
+# Optional: GITHUB_TOKEN (read-only) for higher GitHub asset download limits
+# Job writes website/scan-results.json — never calls VT from the browser.
+
+virus-scan:
+  stage: scan
+  image: python:3.12-alpine
+  script:
+    - |
+      if [ -z "${VIRUSTOTAL_API_KEY:-}" ]; then
+        echo "VIRUSTOTAL_API_KEY not set — writing pending placeholder (no fake scores)."
+        python3 scripts/virustotal-scan.py --dry-run
+      else
+        export VT_RELEASE_TAG="${VT_RELEASE_TAG:-v0.1.0-alpha.3}"
+        python3 scripts/virustotal-scan.py
+      fi
+    - test -f website/scan-results.json
+  artifacts:
+    paths:
+      - website/scan-results.json
+    expire_in: 30 days
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
+    - if: $CI_COMMIT_TAG
+      when: manual
+      allow_failure: true
+
 # ── DEPLOY WEBSITE ───────────────────────────────
 
 deploy-site:
@@ -105,10 +136,13 @@ deploy-site:
     - ssh-keyscan -p 22 $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
   script:
     - echo "=== Deploying Void Browser Website ==="
-    - scp -o StrictHostKeyChecking=no website/index.html website/style.css website/Dockerfile website/robots.txt website/sitemap.xml website/ai.txt website/tdmrep.json website/favicon.ico website/favicon-32.png website/favicon-192.png website/favicon-512.png website/apple-touch-icon.png website/site.webmanifest website/manifest.json root@$DEPLOY_HOST:/mnt/user/appdata/lightfootcloud/websites/void-browser/
+    - scp -o StrictHostKeyChecking=no website/index.html website/style.css website/Dockerfile website/robots.txt website/sitemap.xml website/ai.txt website/tdmrep.json website/favicon.ico website/favicon-32.png website/favicon-192.png website/favicon-512.png website/apple-touch-icon.png website/site.webmanifest website/manifest.json website/releases.json website/scan-results.json root@$DEPLOY_HOST:/mnt/user/appdata/lightfootcloud/websites/void-browser/
     - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "cd /mnt/user/appdata/lightfootcloud/websites/void-browser && docker build -t void-website . && docker stop void-website 2>/dev/null; docker rm void-website 2>/dev/null; docker run -d --name void-website --restart unless-stopped -p 5080:80 --network proxynet --memory=128m --security-opt no-new-privileges:true void-website"
     - sleep 5
     - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -sf http://localhost:5080/ > /dev/null && echo 'Health check PASSED' || (echo 'Health check FAILED' && exit 1)"
+    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -sf http://localhost:5080/releases.json > /dev/null && echo 'releases.json OK' || (echo 'releases.json MISSING' && exit 1)"
+    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -sf http://localhost:5080/scan-results.json > /dev/null && echo 'scan-results.json OK' || (echo 'scan-results.json MISSING' && exit 1)"
+    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -sf -o /dev/null -w '%{http_code}' http://localhost:5080/manifest.json | grep -q 200 && echo 'manifest.json OK' || (echo 'manifest.json FAILED' && exit 1)"
     - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -sI http://localhost:5080/ | grep -E '^(X-|Referrer|Content-Security|Permissions)'"
     - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -s http://localhost:5080/ | grep -qi '<script[^>]*google-analytics' && echo 'TRACKING FOUND' && exit 1 || echo 'No tracking scripts - PASSED'"
     - echo "=== Deployment verified ==="

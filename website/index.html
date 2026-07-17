@@ -135,7 +135,7 @@
   <!-- Hero -->
   <section id="hero">
     <div class="hero-content">
-      <div class="hero-badge">v0.1.0 — Early Access</div>
+      <div class="hero-badge">v0.1.0-alpha.3 — Early Access</div>
       <h1>VOID</h1>
       <p class="hero-tagline">No tracking. No AI. Just browsing.</p>
       <p class="hero-desc">
@@ -393,45 +393,56 @@
     <div class="container">
       <h2>Get Void</h2>
       <p class="section-desc">Free. Open source. Forever. No account required.</p>
+      <p class="download-release-meta" id="download-release-meta">Latest release: <a href="https://github.com/dadhatdaniel/void-browser/releases/latest" rel="noopener noreferrer">v0.1.0-alpha.3</a></p>
       <div class="download-grid">
-        <a href="https://github.com/dadhatdaniel/void-browser/releases/latest" class="download-card" aria-label="Download for Linux" rel="noopener noreferrer">
+        <div class="download-card">
           <div class="download-icon">🐧</div>
           <h3>Linux</h3>
           <div class="download-formats">
-            <span>.deb</span>
-            <span>.AppImage</span>
+            <a class="download-fmt" data-asset="linux_deb" href="https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.3/Void.Browser_0.1.0_amd64.deb" rel="noopener noreferrer">.deb</a>
+            <a class="download-fmt" data-asset="linux_appimage" href="https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.3/Void.Browser_0.1.0_amd64.AppImage" rel="noopener noreferrer">.AppImage</a>
           </div>
-          <span class="download-size">~8 MB</span>
-        </a>
+          <span class="download-size" data-size-for="linux_deb">~5 MB</span>
+        </div>
 
-        <a href="https://github.com/dadhatdaniel/void-browser/releases/latest" class="download-card" aria-label="Download for Windows" rel="noopener noreferrer">
+        <div class="download-card">
           <div class="download-icon">🪟</div>
           <h3>Windows</h3>
           <div class="download-formats">
-            <span>.msi</span>
-            <span>.exe</span>
+            <a class="download-fmt" data-asset="windows_msi" href="https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.3/Void.Browser_0.1.0_x64_en-US.msi" rel="noopener noreferrer">.msi</a>
+            <a class="download-fmt" data-asset="windows_exe" href="https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.3/Void.Browser_0.1.0_x64-setup.exe" rel="noopener noreferrer">.exe</a>
           </div>
-          <span class="download-size">~7 MB</span>
-        </a>
+          <span class="download-size" data-size-for="windows_msi">~4 MB</span>
+        </div>
 
-        <a href="https://github.com/dadhatdaniel/void-browser/releases/latest" class="download-card" aria-label="Download for macOS" rel="noopener noreferrer">
+        <div class="download-card">
           <div class="download-icon">🍎</div>
           <h3>macOS</h3>
           <div class="download-formats">
-            <span>.dmg</span>
+            <a class="download-fmt" data-asset="macos_dmg" href="https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.3/Void.Browser_0.1.0_aarch64.dmg" rel="noopener noreferrer">.dmg</a>
           </div>
-          <span class="download-size">~8 MB</span>
-        </a>
+          <span class="download-size" data-size-for="macos_dmg">~4 MB</span>
+          <p class="download-note">Apple Silicon (aarch64)</p>
+        </div>
       </div>
+
+      <p class="download-all-link"><a href="https://github.com/dadhatdaniel/void-browser/releases/latest" rel="noopener noreferrer">View all assets on GitHub Releases →</a></p>
 
       <!-- Verification -->
       <div class="verification-info">
-        <h3>🔐 Verify Your Download</h3>
-        <p>Every release includes SHA-256 checksums so you can verify the file hasn't been tampered with. Grab <code style="display:inline;padding:2px 6px;background:var(--bg);border-radius:4px;">CHECKSUMS</code> from the release page.</p>
-        <code>sha256sum --check CHECKSUMS</code>
+        <h3>Verify Your Download</h3>
+        <p>Prefer SHA-256 from the release page over trusting a browser download alone. Compare the published digest with your local file.</p>
+        <code>sha256sum Void.Browser_*.deb   # Linux / macOS (shasum -a 256 on macOS)</code>
       </div>
 
-
+      <!-- Safety scores (static JSON from CI — no client-side VirusTotal calls) -->
+      <div class="scan-scores" id="scan-scores" aria-live="polite">
+        <h3>Safety scans</h3>
+        <p class="scan-status" id="scan-status">Loading scan results…</p>
+        <div class="scan-grid" id="scan-grid"></div>
+        <ul class="scan-limitations" id="scan-limitations"></ul>
+        <p class="scan-footnote">Scores are refreshed in CI and served as a static JSON file. This page never phones home to VirusTotal or other scanners.</p>
+      </div>
     </div>
   </section>
 
@@ -498,6 +509,81 @@
         target.scrollIntoView({ behavior: 'smooth' });
       });
     });
+
+    // Hydrate download links from same-origin releases.json (no GitHub API from the browser)
+    fetch('/releases.json')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data || !data.assets) return;
+        const meta = document.getElementById('download-release-meta');
+        if (meta && data.tag) {
+          const page = data.page || data.latest_page || 'https://github.com/dadhatdaniel/void-browser/releases/latest';
+          meta.innerHTML = 'Latest release: <a href="' + page + '" rel="noopener noreferrer">' + data.tag + '</a>';
+        }
+        document.querySelectorAll('[data-asset]').forEach(el => {
+          const key = el.getAttribute('data-asset');
+          const asset = data.assets[key];
+          if (asset && asset.url) {
+            el.setAttribute('href', asset.url);
+            el.setAttribute('download', asset.name || '');
+          }
+        });
+        document.querySelectorAll('[data-size-for]').forEach(el => {
+          const key = el.getAttribute('data-size-for');
+          const asset = data.assets[key];
+          if (asset && asset.size_label) el.textContent = asset.size_label;
+        });
+      })
+      .catch(() => { /* keep hardcoded href fallbacks */ });
+
+    // Render VirusTotal / safety scores from static scan-results.json (CI-written)
+    fetch('/scan-results.json')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        const statusEl = document.getElementById('scan-status');
+        const grid = document.getElementById('scan-grid');
+        const lim = document.getElementById('scan-limitations');
+        if (!statusEl || !grid) return;
+        if (!data) {
+          statusEl.textContent = 'Scan results unavailable.';
+          return;
+        }
+        const tag = data.release_tag ? ' (' + data.release_tag + ')' : '';
+        if (data.status === 'clean') {
+          statusEl.textContent = (data.message || 'Verified clean by VirusTotal engines at last scan.') + tag;
+          statusEl.className = 'scan-status scan-ok';
+        } else if (data.status === 'attention' || data.status === 'flagged') {
+          statusEl.textContent = (data.message || 'Some engines flagged an artifact — review reports.') + tag;
+          statusEl.className = 'scan-status scan-warn';
+        } else {
+          statusEl.textContent = (data.message || 'Scans pending configuration.') + tag;
+          statusEl.className = 'scan-status scan-pending';
+        }
+        const cards = [];
+        if (data.website) {
+          const w = data.website;
+          const ratio = (w.positives != null && w.total != null) ? (w.positives + ' / ' + w.total) : '—';
+          const link = w.permalink ? '<a href="' + w.permalink + '" rel="noopener noreferrer">VirusTotal</a>' : 'not scanned';
+          cards.push('<div class="scan-card"><strong>Website</strong><span class="scan-ratio">' + ratio + '</span><span class="scan-link">' + link + '</span></div>');
+        }
+        (data.artifacts || []).forEach(a => {
+          const ratio = (a.positives != null && a.total != null) ? (a.positives + ' / ' + a.total) : '—';
+          const link = a.permalink ? '<a href="' + a.permalink + '" rel="noopener noreferrer">Report</a>' : (a.status || 'pending');
+          cards.push('<div class="scan-card"><strong>' + (a.name || 'artifact') + '</strong><span class="scan-ratio">' + ratio + '</span><span class="scan-link">' + link + '</span></div>');
+        });
+        if (!cards.length) {
+          grid.innerHTML = '<div class="scan-card scan-card-empty"><strong>Packages</strong><span class="scan-ratio">—</span><span class="scan-link">Awaiting VIRUSTOTAL_API_KEY in GitLab CI</span></div>';
+        } else {
+          grid.innerHTML = cards.join('');
+        }
+        if (lim && Array.isArray(data.limitations)) {
+          lim.innerHTML = data.limitations.map(t => '<li>' + t + '</li>').join('');
+        }
+      })
+      .catch(() => {
+        const statusEl = document.getElementById('scan-status');
+        if (statusEl) statusEl.textContent = 'Could not load scan results.';
+      });
 
     const nav = document.querySelector('nav');
     const root = document.documentElement;

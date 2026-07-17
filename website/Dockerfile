@@ -13,6 +13,8 @@ COPY favicon-512.png /usr/share/nginx/html/
 COPY apple-touch-icon.png /usr/share/nginx/html/
 COPY site.webmanifest /usr/share/nginx/html/
 COPY manifest.json /usr/share/nginx/html/
+COPY releases.json /usr/share/nginx/html/
+COPY scan-results.json /usr/share/nginx/html/
 RUN mkdir -p /usr/share/nginx/html/.well-known
 COPY tdmrep.json /usr/share/nginx/html/.well-known/tdmrep.json
 
@@ -71,11 +73,25 @@ server {
         try_files $uri =404;
     }
     location = /site.webmanifest {
+        types { }
         default_type application/manifest+json;
-        add_header Content-Type "application/manifest+json" always;
         add_header Cache-Control "public, max-age=86400" always;
         add_header X-Content-Type-Options "nosniff" always;
         add_header Cross-Origin-Resource-Policy "cross-origin" always;
+        try_files $uri =404;
+    }
+
+    # Release + scan metadata — short cache so CI updates show up quickly
+    location = /releases.json {
+        default_type application/json;
+        add_header Cache-Control "public, max-age=300" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        try_files $uri =404;
+    }
+    location = /scan-results.json {
+        default_type application/json;
+        add_header Cache-Control "public, max-age=300" always;
+        add_header X-Content-Type-Options "nosniff" always;
         try_files $uri =404;
     }
 
