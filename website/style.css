@@ -5,20 +5,20 @@
    ═══════════════════════════════════════════════════ */
 
 :root {
-  --bg: #07060b;
-  --bg-card: rgba(16, 14, 22, 0.72);
-  --bg-card-hover: rgba(24, 20, 34, 0.85);
-  --text: #e8e4f0;
-  --text-dim: #9a93a8;
-  --text-muted: #5c5668;
-  --accent: #8b6fd4;
-  --accent-glow: rgba(139, 111, 212, 0.35);
-  --accent-dim: rgba(139, 111, 212, 0.1);
-  --border: rgba(255, 255, 255, 0.08);
+  --bg: #06050a;
+  --bg-card: rgba(16, 14, 22, 0.55);
+  --bg-card-hover: rgba(24, 20, 34, 0.72);
+  --text: #ece8f4;
+  --text-dim: #a39bb0;
+  --text-muted: #6a6478;
+  --accent: #9a82d4;
+  --accent-glow: rgba(154, 130, 212, 0.22);
+  --accent-dim: rgba(154, 130, 212, 0.08);
+  --border: rgba(255, 255, 255, 0.07);
   --success: #4ade80;
   --danger: #ef4444;
-  --radius: 12px;
-  --scroll: 0;
+  --radius: 14px;
+  --section-space: clamp(88px, 12vw, 128px);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -29,13 +29,15 @@ body {
   font-family: "Segoe UI Variable", "Segoe UI", "Avenir Next", "Helvetica Neue", sans-serif;
   background: var(--bg);
   color: var(--text);
-  line-height: 1.6;
+  line-height: 1.65;
+  letter-spacing: 0.01em;
   -webkit-font-smoothing: antialiased;
   position: relative;
   overflow-x: hidden;
+  min-height: 100%;
 }
 
-/* ── Scroll-reactive void background ──────────── */
+/* ── Fixed void field (canvas covers viewport; redraws for full scroll) ── */
 
 .void-bg {
   position: fixed;
@@ -44,92 +46,80 @@ body {
   pointer-events: none;
   overflow: hidden;
   background:
-    radial-gradient(ellipse 90% 60% at 50% -10%, rgba(90, 60, 140, 0.28), transparent 55%),
-    radial-gradient(ellipse 50% 40% at 80% 30%, rgba(40, 80, 120, 0.12), transparent 50%),
-    linear-gradient(180deg, #0a0810 0%, #07060b 40%, #05040a 100%);
+    radial-gradient(ellipse 100% 70% at 50% -5%, rgba(72, 52, 110, 0.22), transparent 58%),
+    radial-gradient(ellipse 55% 45% at 85% 55%, rgba(32, 64, 96, 0.1), transparent 55%),
+    radial-gradient(ellipse 45% 40% at 10% 80%, rgba(48, 40, 72, 0.12), transparent 50%),
+    #06050a;
 }
 
 #void-canvas {
   position: absolute;
   inset: 0;
   width: 100%;
-  height: 160%;
-  will-change: transform;
-}
-
-/* Dense CSS starfields — transform updates on scroll (see index.html) */
-.star-layer {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: -20%;
-  height: 180%;
-  will-change: transform;
-  pointer-events: none;
-  background-repeat: repeat;
-  background-size: 320px 320px;
-}
-
-.star-layer-far {
-  opacity: 0.55;
-  background-image:
-    radial-gradient(1px 1px at 20px 30px, rgba(255,255,255,0.7), transparent),
-    radial-gradient(1px 1px at 80px 120px, rgba(220,210,255,0.55), transparent),
-    radial-gradient(1.5px 1.5px at 160px 60px, rgba(255,255,255,0.45), transparent),
-    radial-gradient(1px 1px at 240px 200px, rgba(200,190,255,0.5), transparent),
-    radial-gradient(1px 1px at 300px 90px, rgba(255,255,255,0.4), transparent),
-    radial-gradient(1px 1px at 40px 220px, rgba(230,220,255,0.5), transparent),
-    radial-gradient(1.5px 1.5px at 200px 260px, rgba(255,255,255,0.35), transparent),
-    radial-gradient(1px 1px at 120px 180px, rgba(210,200,255,0.45), transparent);
-}
-
-.star-layer-mid {
-  opacity: 0.75;
-  background-size: 220px 220px;
-  background-image:
-    radial-gradient(1.5px 1.5px at 30px 40px, rgba(255,255,255,0.85), transparent),
-    radial-gradient(1px 1px at 110px 20px, rgba(230,220,255,0.7), transparent),
-    radial-gradient(2px 2px at 170px 140px, rgba(255,255,255,0.55), transparent),
-    radial-gradient(1px 1px at 60px 160px, rgba(200,190,255,0.65), transparent),
-    radial-gradient(1.5px 1.5px at 190px 80px, rgba(255,255,255,0.5), transparent),
-    radial-gradient(1px 1px at 140px 190px, rgba(220,210,255,0.6), transparent);
+  height: 100%;
+  display: block;
 }
 
 .void-nebula {
   position: absolute;
   border-radius: 50%;
-  filter: blur(80px);
-  opacity: 0.55;
+  filter: blur(90px);
+  opacity: 0.4;
   will-change: transform;
 }
 
 .void-nebula-a {
-  width: min(70vw, 720px);
-  height: min(70vw, 720px);
-  top: 8%;
-  left: -12%;
-  background: radial-gradient(circle, rgba(124, 92, 191, 0.45), transparent 70%);
+  width: min(75vw, 760px);
+  height: min(75vw, 760px);
+  top: -8%;
+  left: -18%;
+  background: radial-gradient(circle, rgba(110, 88, 160, 0.38), transparent 68%);
+  animation: nebula-drift-a 48s ease-in-out infinite alternate;
 }
 
 .void-nebula-b {
-  width: min(55vw, 560px);
-  height: min(55vw, 560px);
-  top: 45%;
-  right: -10%;
-  background: radial-gradient(circle, rgba(56, 120, 160, 0.28), transparent 70%);
+  width: min(60vw, 580px);
+  height: min(60vw, 580px);
+  bottom: -12%;
+  right: -14%;
+  background: radial-gradient(circle, rgba(48, 100, 130, 0.22), transparent 68%);
+  animation: nebula-drift-b 62s ease-in-out infinite alternate;
+}
+
+.void-nebula-c {
+  width: min(50vw, 480px);
+  height: min(50vw, 480px);
+  top: 38%;
+  left: 55%;
+  background: radial-gradient(circle, rgba(80, 70, 120, 0.14), transparent 70%);
+  animation: nebula-drift-c 55s ease-in-out infinite alternate;
+  opacity: 0.35;
 }
 
 .void-vignette {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse at center, transparent 35%, rgba(5, 4, 10, 0.75) 100%);
+    radial-gradient(ellipse 80% 70% at 50% 40%, transparent 30%, rgba(6, 5, 10, 0.55) 100%);
+}
+
+@keyframes nebula-drift-a {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(4%, 6%, 0) scale(1.06); }
+}
+
+@keyframes nebula-drift-b {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(-5%, -4%, 0) scale(1.08); }
+}
+
+@keyframes nebula-drift-c {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-3%, 5%, 0); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .void-nebula,
-  .star-layer,
-  #void-canvas { transform: none !important; }
+  .void-nebula { animation: none !important; }
 }
 
 .container {
@@ -151,7 +141,7 @@ nav {
 }
 
 nav.scrolled {
-  background: rgba(7, 6, 11, 0.82);
+  background: rgba(6, 5, 10, 0.78);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--border);
@@ -315,12 +305,12 @@ nav.scrolled {
 .btn-primary {
   background: var(--accent);
   color: white;
-  box-shadow: 0 0 20px var(--accent-glow);
+  box-shadow: 0 0 24px var(--accent-glow);
 }
 
 .btn-primary:hover {
-  background: #9370db;
-  box-shadow: 0 0 30px var(--accent-glow);
+  background: #a890dc;
+  box-shadow: 0 0 28px var(--accent-glow);
   transform: translateY(-1px);
 }
 
@@ -369,7 +359,7 @@ nav.scrolled {
   background: var(--border);
 }
 
-/* ── Shared section rhythm (no hard hairlines) ── */
+/* ── Continuous void flow — spacing only, no section slabs ── */
 
 #privacy-promise,
 #manifesto,
@@ -379,45 +369,19 @@ nav.scrolled {
 #for-the-people,
 #download,
 #faq {
-  padding: 100px 24px;
-  border-top: none;
+  padding: var(--section-space) 24px;
+  border: none;
+  background: transparent;
   position: relative;
 }
 
-/* Soft atmospheric washes instead of stacked slab borders */
 #privacy-promise {
-  padding-top: 72px;
-  padding-bottom: 72px;
-  background: radial-gradient(ellipse 70% 80% at 50% 0%, rgba(74, 222, 128, 0.06), transparent 65%);
+  padding-top: clamp(56px, 8vw, 80px);
+  padding-bottom: clamp(56px, 8vw, 80px);
 }
 
 #manifesto {
   text-align: center;
-  background: radial-gradient(ellipse 55% 70% at 50% 40%, rgba(90, 60, 140, 0.07), transparent 70%);
-}
-
-#features {
-  background: radial-gradient(ellipse 80% 50% at 20% 50%, rgba(40, 80, 120, 0.06), transparent 60%);
-}
-
-#security {
-  background: radial-gradient(ellipse 70% 55% at 80% 40%, rgba(90, 60, 140, 0.08), transparent 65%);
-}
-
-#no-features {
-  background: radial-gradient(ellipse 60% 50% at 50% 100%, rgba(239, 68, 68, 0.04), transparent 60%);
-}
-
-#for-the-people {
-  background: radial-gradient(ellipse 65% 60% at 50% 30%, rgba(74, 222, 128, 0.05), transparent 70%);
-}
-
-#download {
-  background: radial-gradient(ellipse 75% 55% at 50% 0%, rgba(139, 111, 212, 0.08), transparent 60%);
-}
-
-#faq {
-  background: radial-gradient(ellipse 50% 40% at 50% 100%, rgba(40, 80, 120, 0.05), transparent 55%);
 }
 
 /* ── Privacy Promise ──────────────────────────── */
@@ -433,10 +397,10 @@ nav.scrolled {
 }
 
 .privacy-banner-content h2 {
-  font-size: 28px;
+  font-size: clamp(24px, 3.2vw, 30px);
   font-weight: 300;
-  letter-spacing: 2px;
-  margin-bottom: 20px;
+  letter-spacing: 0.12em;
+  margin-bottom: 22px;
   color: var(--success);
 }
 
@@ -473,18 +437,19 @@ nav.scrolled {
 /* ── Manifesto ────────────────────────────────── */
 
 #manifesto h2 {
-  font-size: 32px;
+  font-size: clamp(26px, 4vw, 36px);
   font-weight: 300;
-  line-height: 1.4;
-  margin-bottom: 32px;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  margin-bottom: 36px;
 }
 
 .manifesto-text {
   font-size: 16px;
   color: var(--text-dim);
-  max-width: 600px;
-  margin: 0 auto 16px;
-  line-height: 1.8;
+  max-width: 560px;
+  margin: 0 auto 18px;
+  line-height: 1.85;
 }
 
 /* ── Features ─────────────────────────────────── */
@@ -492,24 +457,25 @@ nav.scrolled {
 #features h2, #security h2, #no-features h2, #download h2, #faq h2,
 #for-the-people h2 {
   text-align: center;
-  font-size: 32px;
+  font-size: clamp(26px, 3.5vw, 34px);
   font-weight: 300;
-  letter-spacing: 4px;
-  margin-bottom: 16px;
+  letter-spacing: 0.08em;
+  margin-bottom: 14px;
 }
 
 .section-desc {
   text-align: center;
   color: var(--text-dim);
-  margin-bottom: 48px;
+  margin-bottom: 56px;
   font-size: 15px;
+  letter-spacing: 0.02em;
 }
 
 .features-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 32px 28px;
-  margin-top: 48px;
+  gap: 40px 36px;
+  margin-top: 8px;
 }
 
 .feature {
@@ -546,24 +512,21 @@ nav.scrolled {
 .security-levels {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 16px;
-  margin-top: 48px;
+  gap: 20px;
+  margin-top: 8px;
 }
 
 .security-card {
-  padding: 32px;
-  background: rgba(16, 14, 22, 0.45);
-  border: 1px solid transparent;
+  padding: 28px 24px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: var(--radius);
   position: relative;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
 }
 
 .security-card.featured {
-  border-color: rgba(139, 111, 212, 0.35);
-  background: rgba(24, 20, 34, 0.55);
-  box-shadow: 0 0 40px rgba(124, 92, 191, 0.08);
+  border-color: rgba(154, 130, 212, 0.28);
+  background: rgba(154, 130, 212, 0.04);
 }
 
 .security-level-badge {
@@ -616,7 +579,7 @@ nav.scrolled {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 8px;
-  margin-top: 48px;
+  margin-top: 8px;
   max-width: 800px;
   margin-left: auto;
   margin-right: auto;
@@ -648,7 +611,7 @@ nav.scrolled {
 }
 
 .people-banner h2 {
-  font-size: 36px;
+  font-size: clamp(28px, 4vw, 36px);
   font-weight: 300;
   margin-bottom: 24px;
   background: linear-gradient(135deg, var(--accent) 0%, var(--success) 100%);
@@ -698,7 +661,7 @@ nav.scrolled {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 16px;
-  margin-top: 48px;
+  margin-top: 8px;
   max-width: 700px;
   margin-left: auto;
   margin-right: auto;
@@ -709,6 +672,7 @@ nav.scrolled {
   font-size: 14px;
   color: var(--text-dim);
   margin-top: -8px;
+  margin-bottom: 40px;
 }
 
 .download-release-meta a {
@@ -720,20 +684,18 @@ nav.scrolled {
 
 .download-card {
   padding: 32px 24px;
-  background: rgba(16, 14, 22, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius);
   text-align: center;
   text-decoration: none;
   color: var(--text);
-  transition: border-color 0.3s, transform 0.2s, background 0.3s;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  transition: border-color 0.25s, transform 0.2s, background 0.25s;
 }
 
 .download-card:hover {
-  border-color: rgba(139, 111, 212, 0.45);
-  background: rgba(24, 20, 34, 0.65);
+  border-color: rgba(154, 130, 212, 0.4);
+  background: rgba(154, 130, 212, 0.05);
   transform: translateY(-2px);
 }
 
@@ -770,8 +732,8 @@ nav.scrolled {
 }
 
 a.download-fmt:hover {
-  border-color: rgba(139, 111, 212, 0.55);
-  background: rgba(139, 111, 212, 0.15);
+  border-color: rgba(154, 130, 212, 0.55);
+  background: rgba(154, 130, 212, 0.15);
   color: #fff;
 }
 
@@ -952,7 +914,7 @@ a.download-fmt:hover {
 .verification-info code, .build-source code {
   display: block;
   padding: 12px 20px;
-  background: var(--bg);
+  background: rgba(0, 0, 0, 0.35);
   border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 12px;
@@ -968,7 +930,7 @@ a.download-fmt:hover {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 28px 32px;
-  margin-top: 48px;
+  margin-top: 8px;
 }
 
 .faq-item {
@@ -1002,9 +964,9 @@ a.download-fmt:hover {
 /* ── Footer ───────────────────────────────────── */
 
 footer {
-  padding: 56px 24px 32px;
+  padding: 64px 24px 40px;
   border-top: none;
-  background: linear-gradient(180deg, transparent 0%, rgba(5, 4, 10, 0.55) 100%);
+  background: transparent;
 }
 
 .footer-inner {
@@ -1067,7 +1029,7 @@ footer {
     top: 100%;
     left: 0;
     right: 0;
-    background: rgba(5, 5, 5, 0.98);
+    background: rgba(6, 5, 10, 0.96);
     backdrop-filter: blur(20px);
     flex-direction: column;
     padding: 24px;
@@ -1096,7 +1058,7 @@ footer {
   #for-the-people,
   #download,
   #faq {
-    padding: 72px 20px;
+    padding: clamp(64px, 14vw, 88px) 20px;
   }
 
   .footer-inner {

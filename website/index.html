@@ -105,13 +105,12 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <!-- Scroll-reactive void field (CSS layers + canvas; both move with scroll) -->
+  <!-- Fixed void field: canvas redraws for full document scroll (no tiled CSS stars) -->
   <div class="void-bg" aria-hidden="true">
-    <div class="star-layer star-layer-far" id="stars-far"></div>
-    <div class="star-layer star-layer-mid" id="stars-mid"></div>
     <canvas id="void-canvas"></canvas>
     <div class="void-nebula void-nebula-a"></div>
     <div class="void-nebula void-nebula-b"></div>
+    <div class="void-nebula void-nebula-c"></div>
     <div class="void-vignette"></div>
   </div>
 
@@ -618,85 +617,179 @@
       });
 
     const nav = document.querySelector('nav');
-    const root = document.documentElement;
-    const nebulaA = document.querySelector('.void-nebula-a');
-    const nebulaB = document.querySelector('.void-nebula-b');
-    const starsFar = document.getElementById('stars-far');
-    const starsMid = document.getElementById('stars-mid');
     const canvas = document.getElementById('void-canvas');
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     let scrollY = 0;
     let ticking = false;
 
-    function applyParallax(y) {
-      scrollY = y;
-      root.style.setProperty('--scroll', String(y));
-      // Strong, obvious layer motion (px) — far / mid / near
-      if (starsFar) starsFar.style.transform = `translate3d(0, ${y * -0.18}px, 0)`;
-      if (starsMid) starsMid.style.transform = `translate3d(0, ${y * -0.42}px, 0)`;
-      if (nebulaA) nebulaA.style.transform = `translate3d(${y * 0.04}px, ${y * -0.28}px, 0)`;
-      if (nebulaB) nebulaB.style.transform = `translate3d(${y * -0.06}px, ${y * -0.55}px, 0)`;
-      if (canvas) canvas.style.transform = `translate3d(0, ${y * -0.65}px, 0)`;
-      nav.classList.toggle('scrolled', y > 50);
-    }
-
     function onScroll() {
-      applyParallax(window.scrollY || document.documentElement.scrollTop || 0);
+      scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+      nav.classList.toggle('scrolled', scrollY > 50);
       ticking = false;
     }
     window.addEventListener('scroll', () => {
-      if (reduceMotion) return;
       if (!ticking) {
         requestAnimationFrame(onScroll);
         ticking = true;
       }
     }, { passive: true });
-    applyParallax(window.scrollY || 0);
+    onScroll();
 
-    // Near-field star dots on canvas (extra depth; moves with canvas transform + redraw)
+    // Fixed viewport canvas: stars seeded across full document height (no tile/seam).
+    // Parallax layers + occasional shooting stars. Footer stays in the field.
     (function initVoidField() {
-      if (!canvas || reduceMotion) return;
+      if (!canvas) return;
       const ctx = canvas.getContext('2d', { alpha: true });
-      let stars = [];
-      let w = 0, h = 0, dpr = 1;
+      let w = 0, h = 0, dpr = 1, docH = 0;
+      let layers = [];
+      let shooters = [];
+      let lastSpawn = 0;
+      let twinkleT = 0;
+
+      function mulberry32(seed) {
+        let a = seed >>> 0;
+        return function () {
+          a = (a + 0x6D2B79F5) >>> 0;
+          let t = a;
+          t = Math.imul(t ^ (t >>> 15), t | 1);
+          t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+      }
+
+      function seedLayers() {
+        docH = Math.max(
+          document.documentElement.scrollHeight,
+          document.body.scrollHeight,
+          window.innerHeight
+        );
+        const fieldH = docH + window.innerHeight * 0.5;
+        const specs = [
+          { parallax: 0.12, density: 14000, rMin: 0.4, rMax: 1.1, aMin: 0.25, aMax: 0.55, seed: 0xA11CE },
+          { parallax: 0.28, density: 18000, rMin: 0.6, rMax: 1.5, aMin: 0.3, aMax: 0.7, seed: 0xB00B5 },
+          { parallax: 0.48, density: 22000, rMin: 0.8, rMax: 2.0, aMin: 0.35, aMax: 0.85, seed: 0xC0FFEE }
+        ];
+        layers = specs.map((sp) => {
+          const rnd = mulberry32(sp.seed ^ Math.floor(w * 97) ^ Math.floor(fieldH * 13));
+          const count = Math.min(900, Math.max(80, Math.floor((w * fieldH) / sp.density)));
+          const stars = new Array(count);
+          for (let i = 0; i < count; i++) {
+            stars[i] = {
+              x: rnd() * w,
+              y: rnd() * fieldH,
+              r: sp.rMin + rnd() * (sp.rMax - sp.rMin),
+              a: sp.aMin + rnd() * (sp.aMax - sp.aMin),
+              phase: rnd() * Math.PI * 2,
+              cool: rnd() > 0.72
+            };
+          }
+          return { parallax: sp.parallax, stars };
+        });
+      }
 
       function resize() {
         dpr = Math.min(window.devicePixelRatio || 1, 2);
         w = window.innerWidth;
-        h = Math.max(window.innerHeight * 1.6, 900);
+        h = window.innerHeight;
         canvas.width = Math.floor(w * dpr);
         canvas.height = Math.floor(h * dpr);
         canvas.style.width = w + 'px';
         canvas.style.height = h + 'px';
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        const count = Math.min(160, Math.floor((w * h) / 12000));
-        stars = Array.from({ length: count }, () => ({
-          x: Math.random() * w,
-          y: Math.random() * h,
-          z: 0.5 + Math.random() * 1.2,
-          r: 0.8 + Math.random() * 1.8,
-          a: 0.35 + Math.random() * 0.55
-        }));
+        seedLayers();
       }
 
-      function draw() {
+      function spawnShooter(now) {
+        if (reduceMotion) return;
+        if (now - lastSpawn < 4800 + Math.random() * 8000) return;
+        if (shooters.length >= 2) return;
+        lastSpawn = now;
+        const fromLeft = Math.random() > 0.4;
+        const angle = (14 + Math.random() * 20) * Math.PI / 180;
+        const speed = 7.5 + Math.random() * 5.5;
+        shooters.push({
+          x: fromLeft ? -30 : w + 30,
+          y: Math.random() * h * 0.5,
+          vx: (fromLeft ? 1 : -1) * Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          len: 100 + Math.random() * 130,
+          life: 1,
+          decay: 0.007 + Math.random() * 0.005
+        });
+      }
+
+      function draw(now) {
+        twinkleT = (now || performance.now()) * 0.001;
         ctx.clearRect(0, 0, w, h);
-        // Additional per-star drift relative to scroll (on top of canvas translate)
-        const drift = scrollY * 0.35;
-        for (const s of stars) {
-          let py = (s.y - drift * s.z) % h;
-          if (py < 0) py += h;
-          const px = s.x + Math.sin((scrollY + s.y) * 0.002 * s.z) * 18 * s.z;
-          ctx.beginPath();
-          ctx.fillStyle = `rgba(230, 220, 255, ${s.a})`;
-          ctx.arc(px, py, s.r, 0, Math.PI * 2);
-          ctx.fill();
+        const sy = scrollY;
+
+        for (const layer of layers) {
+          const shift = sy * layer.parallax;
+          for (const s of layer.stars) {
+            const py = s.y - shift;
+            if (py < -4 || py > h + 4) continue;
+            const tw = reduceMotion ? 1 : (0.72 + 0.28 * Math.sin(twinkleT * (s.cool ? 1.1 : 1.7) + s.phase));
+            const a = s.a * tw;
+            ctx.beginPath();
+            ctx.fillStyle = s.cool
+              ? `rgba(210, 225, 255, ${a})`
+              : `rgba(235, 228, 255, ${a})`;
+            ctx.arc(s.x, py, s.r, 0, Math.PI * 2);
+            ctx.fill();
+          }
         }
+
+        if (!reduceMotion) {
+          spawnShooter(now || performance.now());
+          for (let i = shooters.length - 1; i >= 0; i--) {
+            const sh = shooters[i];
+            sh.x += sh.vx;
+            sh.y += sh.vy;
+            sh.life -= sh.decay;
+            if (sh.life <= 0 || sh.x < -220 || sh.x > w + 220 || sh.y > h + 140) {
+              shooters.splice(i, 1);
+              continue;
+            }
+            const mag = Math.hypot(sh.vx, sh.vy) || 1;
+            const dx = -sh.vx * (sh.len / mag);
+            const dy = -sh.vy * (sh.len / mag);
+            const grad = ctx.createLinearGradient(sh.x, sh.y, sh.x + dx, sh.y + dy);
+            grad.addColorStop(0, `rgba(240, 235, 255, ${0.7 * sh.life})`);
+            grad.addColorStop(0.4, `rgba(200, 210, 240, ${0.22 * sh.life})`);
+            grad.addColorStop(1, 'rgba(200, 210, 240, 0)');
+            ctx.strokeStyle = grad;
+            ctx.lineWidth = 1.2;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(sh.x, sh.y);
+            ctx.lineTo(sh.x + dx, sh.y + dy);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.fillStyle = `rgba(255, 250, 245, ${0.85 * sh.life})`;
+            ctx.arc(sh.x, sh.y, 1.3, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+
         requestAnimationFrame(draw);
       }
 
       resize();
-      window.addEventListener('resize', resize, { passive: true });
+      let resizeTimer = 0;
+      window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(resize, 120);
+      }, { passive: true });
+
+      if (typeof ResizeObserver !== 'undefined') {
+        const ro = new ResizeObserver(() => {
+          const next = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+          if (Math.abs(next - docH) > 80) resize();
+        });
+        ro.observe(document.documentElement);
+        ro.observe(document.body);
+      }
+
       requestAnimationFrame(draw);
     })();
   </script>
