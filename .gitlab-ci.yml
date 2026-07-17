@@ -229,7 +229,10 @@ site-e2e:
 # ── TRIGGER GITHUB BUILD (tags) ──────────────────
 # GitLab push-mirror often updates tag refs without a GitHub tag PushEvent,
 # so Actions never starts. This job explicitly dispatches Build & Release.
-# Requires GITHUB_TOKEN with Actions: write (workflow scope).
+# CI/CD variable GITHUB_TOKEN must be able to POST workflow_dispatch:
+#   - Classic PAT: scopes repo + workflow (recommended for CI)
+#   - Fine-grained PAT: Repository permissions -> Actions: Read and write
+# Contents: Read is enough for dispatch-by-tag-ref; Contents: Write only if recreating tags.
 
 trigger-github-build:
   stage: notify
@@ -261,7 +264,7 @@ trigger-github-build:
         exit 0
       fi
       if [ "$code" = "403" ] || [ "$code" = "401" ]; then
-        echo "BLOCKER: GITHUB_TOKEN lacks actions:write — open Actions → Build & Release → Run workflow on tag $CI_COMMIT_TAG"
+        echo "BLOCKER: GITHUB_TOKEN needs classic repo+workflow (or fine-grained Actions: Read and write) — open Actions → Build & Release → Run workflow on tag $CI_COMMIT_TAG"
         echo "Also ensure TAURI_SIGNING_PRIVATE_KEY is set on GitHub Environment 'release' for updater artifacts."
         exit 1
       fi

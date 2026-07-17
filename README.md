@@ -150,7 +150,7 @@ Source of truth is GitLab (`lightfootcloud/void-browser`). Do not push releases 
 **GitHub Actions not starting after a tag?** GitLab→GitHub push mirroring often updates tag refs without a tag `PushEvent`, and the CI `GITHUB_TOKEN` may lack `actions:write` / classic `workflow` scope (dispatch returns 403). Fix:
 
 1. Actions → **Build & Release** → **Run workflow** → choose tag (e.g. `v0.1.0-alpha.8`), or
-2. Give the mirror / `GITHUB_TOKEN` a classic PAT with `repo` + `workflow` (or fine-grained **Workflows: Read and write**), then re-push / re-dispatch.
+2. Give the mirror / `GITHUB_TOKEN` a classic PAT with `repo` + `workflow` (or fine-grained **Actions: Read and write**), then re-push / re-dispatch.
 
 **Updater signing:** set `TAURI_SIGNING_PRIVATE_KEY` (+ optional password) as secrets on GitHub Environment `release` so tag builds publish `latest.json` + `.sig` artifacts. Without it, installers still build; in-app updates stay unavailable.
 
