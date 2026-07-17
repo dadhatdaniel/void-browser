@@ -548,31 +548,51 @@
           statusEl.textContent = 'Scan results unavailable.';
           return;
         }
-        const tag = data.release_tag ? ' (' + data.release_tag + ')' : '';
+        const tag = data.release_tag ? ' · ' + data.release_tag : '';
+        const when = data.scanned_at ? ' · scanned ' + data.scanned_at : '';
         if (data.status === 'clean') {
-          statusEl.textContent = (data.message || 'Verified clean by VirusTotal engines at last scan.') + tag;
+          statusEl.textContent = (data.message || '0 malicious/suspicious detections on scanned packages.') + tag + when;
           statusEl.className = 'scan-status scan-ok';
         } else if (data.status === 'attention' || data.status === 'flagged') {
-          statusEl.textContent = (data.message || 'Some engines flagged an artifact — review reports.') + tag;
+          statusEl.textContent = (data.message || 'Some engines flagged an artifact — review reports.') + tag + when;
+          statusEl.className = 'scan-status scan-warn';
+        } else if (data.status === 'partial') {
+          statusEl.textContent = (data.message || 'Partial scan results.') + tag + when;
           statusEl.className = 'scan-status scan-warn';
         } else {
-          statusEl.textContent = (data.message || 'Scans pending configuration.') + tag;
+          statusEl.textContent = (data.message || 'Scans pending configuration.') + tag + when;
           statusEl.className = 'scan-status scan-pending';
+        }
+        function ratioLabel(positives, total) {
+          if (positives == null || total == null) return '—';
+          return positives + ' / ' + total + ' engines';
+        }
+        function shortName(name) {
+          if (!name) return 'Package';
+          if (name.endsWith('.deb')) return 'Linux .deb';
+          if (name.endsWith('.AppImage')) return 'Linux AppImage';
+          if (name.endsWith('.msi')) return 'Windows .msi';
+          if (name.endsWith('.exe')) return 'Windows .exe';
+          if (name.endsWith('.dmg')) return 'macOS .dmg';
+          return name;
         }
         const cards = [];
         if (data.website) {
           const w = data.website;
-          const ratio = (w.positives != null && w.total != null) ? (w.positives + ' / ' + w.total) : '—';
-          const link = w.permalink ? '<a href="' + w.permalink + '" rel="noopener noreferrer">VirusTotal</a>' : 'not scanned';
-          cards.push('<div class="scan-card"><strong>Website</strong><span class="scan-ratio">' + ratio + '</span><span class="scan-link">' + link + '</span></div>');
+          const ratio = ratioLabel(w.positives, w.total);
+          const cls = (w.positives === 0) ? ' scan-ratio-ok' : ((w.positives > 0) ? ' scan-ratio-bad' : '');
+          const link = w.permalink ? '<a href="' + w.permalink + '" rel="noopener noreferrer">VirusTotal report</a>' : (w.status || 'not scanned');
+          cards.push('<div class="scan-card"><strong>Website</strong><span class="scan-ratio' + cls + '">' + ratio + '</span><span class="scan-link">' + link + '</span></div>');
         }
         (data.artifacts || []).forEach(a => {
-          const ratio = (a.positives != null && a.total != null) ? (a.positives + ' / ' + a.total) : '—';
-          const link = a.permalink ? '<a href="' + a.permalink + '" rel="noopener noreferrer">Report</a>' : (a.status || 'pending');
-          cards.push('<div class="scan-card"><strong>' + (a.name || 'artifact') + '</strong><span class="scan-ratio">' + ratio + '</span><span class="scan-link">' + link + '</span></div>');
+          const ratio = ratioLabel(a.positives, a.total);
+          const cls = (a.positives === 0) ? ' scan-ratio-ok' : ((a.positives > 0) ? ' scan-ratio-bad' : '');
+          const link = a.permalink ? '<a href="' + a.permalink + '" rel="noopener noreferrer">VirusTotal report</a>' : (a.status || 'pending');
+          const title = shortName(a.name);
+          cards.push('<div class="scan-card"><strong title="' + (a.name || '') + '">' + title + '</strong><span class="scan-ratio' + cls + '">' + ratio + '</span><span class="scan-link">' + link + '</span></div>');
         });
         if (!cards.length) {
-          grid.innerHTML = '<div class="scan-card scan-card-empty"><strong>Packages</strong><span class="scan-ratio">—</span><span class="scan-link">Awaiting VIRUSTOTAL_API_KEY in GitLab CI</span></div>';
+          grid.innerHTML = '<div class="scan-card scan-card-empty"><strong>Packages</strong><span class="scan-ratio">—</span><span class="scan-link">Awaiting scan results</span></div>';
         } else {
           grid.innerHTML = cards.join('');
         }

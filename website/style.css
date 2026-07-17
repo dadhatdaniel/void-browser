@@ -854,12 +854,15 @@ a.download-fmt:hover {
 
 .scan-ratio {
   display: block;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 500;
   color: var(--accent);
   font-variant-numeric: tabular-nums;
   margin-bottom: 4px;
 }
+
+.scan-ratio-ok { color: var(--success); }
+.scan-ratio-bad { color: #f0b429; }
 
 .scan-link {
   font-size: 12px;

@@ -56,13 +56,35 @@ def http_json(
     method: str = "GET",
     data: bytes | None = None,
     timeout: int = 120,
+    retries: int = 5,
 ) -> Any:
-    req = urllib.request.Request(url, data=data, method=method, headers=headers or {})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        body = resp.read()
-        if not body:
-            return None
-        return json.loads(body.decode("utf-8"))
+    last_err: Exception | None = None
+    for attempt in range(retries):
+        req = urllib.request.Request(url, data=data, method=method, headers=headers or {})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                body = resp.read()
+                if not body:
+                    return None
+                return json.loads(body.decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            last_err = e
+            # Rate limited or transient — wait and retry (do not log response bodies / keys)
+            if e.code in (429, 502, 503, 504) and attempt < retries - 1:
+                wait = 20 * (attempt + 1)
+                print(f"  VT HTTP {e.code}; backing off {wait}s...")
+                time.sleep(wait)
+                continue
+            raise
+        except TimeoutError as e:
+            last_err = e
+            if attempt < retries - 1:
+                time.sleep(15)
+                continue
+            raise
+    if last_err:
+        raise last_err
+    return None
 
 
 def sha256_file(path: Path) -> str:
@@ -222,16 +244,47 @@ def main() -> int:
     wanted_ext = (".deb", ".AppImage", ".msi", ".exe", ".dmg")
     artifacts_out: list[dict[str, Any]] = []
 
+    # Website URL first (fast), then packages smallest→largest (AppImage last)
+    website_block: dict[str, Any] = {
+        "url": website_url,
+        "status": "error",
+        "permalink": None,
+        "positives": None,
+        "total": None,
+    }
+    try:
+        print(f"Scanning website URL {website_url}...")
+        url_report = vt_url_scan(api_key, website_url)
+        attrs = url_report.get("data", {}).get("attributes", {})
+        positives, total = summarize_stats(attrs.get("last_analysis_stats"))
+        vt_id = url_report.get("data", {}).get("id")
+        website_block = {
+            "url": website_url,
+            "status": "clean" if positives == 0 else ("flagged" if (positives or 0) > 0 else "unknown"),
+            "permalink": f"https://www.virustotal.com/gui/url/{vt_id}" if vt_id else None,
+            "positives": positives,
+            "total": total,
+            "scanned_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        print(f"  website: {positives}/{total}")
+        time.sleep(16)
+    except Exception as e:
+        print(f"Website URL scan failed: {e}", file=sys.stderr)
+        website_block["error"] = str(e)
+
+    scan_assets = [
+        a
+        for a in assets
+        if (a.get("name") or "").endswith(wanted_ext) and a.get("browser_download_url")
+    ]
+    scan_assets.sort(key=lambda a: int(a.get("size") or 0))
+
     with tempfile.TemporaryDirectory(prefix="void-vt-") as tmp:
         tmpdir = Path(tmp)
-        for asset in assets:
+        for asset in scan_assets:
             name = asset.get("name") or ""
-            if not name.endswith(wanted_ext):
-                continue
             url = asset.get("browser_download_url")
-            if not url:
-                continue
-            print(f"Scanning {name}...")
+            print(f"Scanning {name} ({asset.get('size', '?')} bytes)...")
             local = tmpdir / name
             try:
                 download(url, local, gh_token)
@@ -240,7 +293,7 @@ def main() -> int:
                 if report is None:
                     print(f"  Not on VT yet — uploading {name} ({local.stat().st_size} bytes)")
                     analysis_id = vt_upload_file(api_key, local)
-                    vt_wait_analysis(api_key, analysis_id)
+                    vt_wait_analysis(api_key, analysis_id, timeout_s=600)
                     report = vt_file_report(api_key, digest)
                 attrs = (report or {}).get("data", {}).get("attributes", {})
                 positives, total = summarize_stats(attrs.get("last_analysis_stats"))
@@ -254,11 +307,12 @@ def main() -> int:
                         "status": "clean" if positives == 0 else ("flagged" if (positives or 0) > 0 else "unknown"),
                         "permalink": permalink,
                         "download_url": url,
+                        "scanned_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                     }
                 )
                 print(f"  {name}: {positives}/{total} → {permalink}")
-                # Be nice to free-tier rate limits
-                time.sleep(16)
+                # Free-tier: ~4 requests/min
+                time.sleep(20)
             except Exception as e:
                 print(f"  ERROR scanning {name}: {e}", file=sys.stderr)
                 artifacts_out.append(
@@ -273,31 +327,7 @@ def main() -> int:
                         "error": str(e),
                     }
                 )
-
-    website_block: dict[str, Any] = {
-        "url": website_url,
-        "status": "error",
-        "permalink": None,
-        "positives": None,
-        "total": None,
-    }
-    try:
-        print(f"Scanning website URL {website_url}...")
-        url_report = vt_url_scan(api_key, website_url)
-        attrs = url_report.get("data", {}).get("attributes", {})
-        positives, total = summarize_stats(attrs.get("last_analysis_stats"))
-        # Prefer VT's id if present
-        vt_id = url_report.get("data", {}).get("id")
-        website_block = {
-            "url": website_url,
-            "status": "clean" if positives == 0 else ("flagged" if (positives or 0) > 0 else "unknown"),
-            "permalink": f"https://www.virustotal.com/gui/url/{vt_id}" if vt_id else None,
-            "positives": positives,
-            "total": total,
-        }
-    except Exception as e:
-        print(f"Website URL scan failed: {e}", file=sys.stderr)
-        website_block["error"] = str(e)
+                time.sleep(20)
 
     clean_count = sum(1 for a in artifacts_out if a.get("status") == "clean")
     flagged = sum(1 for a in artifacts_out if a.get("status") == "flagged")

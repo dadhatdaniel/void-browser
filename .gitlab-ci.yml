@@ -100,20 +100,27 @@ license-check:
 virus-scan:
   stage: scan
   image: python:3.12-alpine
+  timeout: 2h
+  variables:
+    VT_RELEASE_TAG: "v0.1.0-alpha.3"
+    VT_WEBSITE_URL: "https://void.lightfoot.cloud"
   script:
     - |
+      set -e
       if [ -z "${VIRUSTOTAL_API_KEY:-}" ]; then
         echo "VIRUSTOTAL_API_KEY not set — writing pending placeholder (no fake scores)."
         python3 scripts/virustotal-scan.py --dry-run
       else
-        export VT_RELEASE_TAG="${VT_RELEASE_TAG:-v0.1.0-alpha.3}"
+        echo "VirusTotal key present (value not printed). Scanning website + release assets..."
         python3 scripts/virustotal-scan.py
       fi
     - test -f website/scan-results.json
+    - python3 -c "import json; d=json.load(open('website/scan-results.json')); print('status=', d.get('status'), 'artifacts=', len(d.get('artifacts') or []), 'site=', (d.get('website') or {}).get('positives'), '/', (d.get('website') or {}).get('total'))"
   artifacts:
     paths:
       - website/scan-results.json
     expire_in: 30 days
+    when: always
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       when: manual
