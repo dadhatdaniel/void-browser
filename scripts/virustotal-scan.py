@@ -310,7 +310,7 @@ def main() -> int:
                         "scanned_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                     }
                 )
-                print(f"  {name}: {positives}/{total} → {permalink}")
+                print(f"  {name}: {positives}/{total} -> {permalink}")
                 # Free-tier: ~4 requests/min
                 time.sleep(20)
             except Exception as e:

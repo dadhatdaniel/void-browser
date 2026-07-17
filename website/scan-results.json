@@ -1,20 +1,72 @@
 {
-  "status": "pending",
+  "status": "attention",
   "provider": "VirusTotal",
-  "message": "Automated scans are not configured yet. Add VIRUSTOTAL_API_KEY as a GitLab CI/CD variable, then re-run the virus-scan job (or publish a release tag).",
+  "message": "Website and 4/5 packages had 0 detections. The Windows .exe installer had 3/74 engine hits — common for new unsigned NSIS installers; review the report before treating it as malware.",
   "website": {
     "url": "https://void.lightfoot.cloud",
-    "status": "not_scanned",
-    "permalink": null,
-    "positives": null,
-    "total": null
+    "status": "clean",
+    "permalink": "https://www.virustotal.com/gui/url/b5098f1987694092295fe972566bef5dd8a7ac2a5f2e117d386f9d84f205de41",
+    "positives": 0,
+    "total": 92,
+    "scanned_at": "2026-07-17T20:24:26Z"
   },
   "release_tag": "v0.1.0-alpha.3",
-  "scanned_at": null,
+  "scanned_at": "2026-07-17T20:24:26Z",
   "limitations": [
-    "macOS builds are unsigned — Gatekeeper may warn until notarized.",
-    "Windows builds are unsigned — SmartScreen / Defender may warn on first run.",
-    "VirusTotal aggregates many engines; a single unknown/heuristic hit is common for new unsigned software and is not proof of malware."
+    "Builds are currently unsigned. macOS Gatekeeper and Windows SmartScreen may warn until Developer ID / Authenticode signing is configured (see docs/CODE_SIGNING.md).",
+    "VirusTotal aggregates many engines; a few heuristic hits on new unsigned Windows installers are common and are not proof of malware.",
+    "Always verify SHA-256 from the GitHub Release page against your downloaded file."
   ],
-  "artifacts": []
+  "artifacts": [
+    {
+      "name": "Void.Browser_0.1.0_amd64.deb",
+      "sha256": "6a8a6fd0d7af4e20aef403e36451c69a525f802eb479045c09ce46ed7f9e7745",
+      "positives": 0,
+      "total": 74,
+      "status": "clean",
+      "permalink": "https://www.virustotal.com/gui/file/6a8a6fd0d7af4e20aef403e36451c69a525f802eb479045c09ce46ed7f9e7745",
+      "download_url": "https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.3/Void.Browser_0.1.0_amd64.deb",
+      "scanned_at": "2026-07-17T20:24:26Z"
+    },
+    {
+      "name": "Void.Browser_0.1.0_amd64.AppImage",
+      "sha256": "634d87d243035da357c479924dd334cc8612a43312e8e7f2b7fddc71c8a1a7e3",
+      "positives": 0,
+      "total": 74,
+      "status": "clean",
+      "permalink": "https://www.virustotal.com/gui/file/634d87d243035da357c479924dd334cc8612a43312e8e7f2b7fddc71c8a1a7e3",
+      "download_url": "https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.3/Void.Browser_0.1.0_amd64.AppImage",
+      "scanned_at": "2026-07-17T20:24:26Z"
+    },
+    {
+      "name": "Void.Browser_0.1.0_x64_en-US.msi",
+      "sha256": "25c78a711856c366882b7d5a93d969cf3009489c49e9e44c4e5a39a09a7f256a",
+      "positives": 0,
+      "total": 74,
+      "status": "clean",
+      "permalink": "https://www.virustotal.com/gui/file/25c78a711856c366882b7d5a93d969cf3009489c49e9e44c4e5a39a09a7f256a",
+      "download_url": "https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.3/Void.Browser_0.1.0_x64_en-US.msi",
+      "scanned_at": "2026-07-17T20:24:26Z"
+    },
+    {
+      "name": "Void.Browser_0.1.0_x64-setup.exe",
+      "sha256": "aa54bac3dab69a50a94b481d80304db8f4d382a4104d8290faf83da55c71e15d",
+      "positives": 3,
+      "total": 74,
+      "status": "flagged",
+      "permalink": "https://www.virustotal.com/gui/file/aa54bac3dab69a50a94b481d80304db8f4d382a4104d8290faf83da55c71e15d",
+      "download_url": "https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.3/Void.Browser_0.1.0_x64-setup.exe",
+      "scanned_at": "2026-07-17T20:24:26Z"
+    },
+    {
+      "name": "Void.Browser_0.1.0_aarch64.dmg",
+      "sha256": "1a3bcddc33c5456d020831364b4ec48fad0bac792a272c9e0c451c9ea40ac6fd",
+      "positives": 0,
+      "total": 74,
+      "status": "clean",
+      "permalink": "https://www.virustotal.com/gui/file/1a3bcddc33c5456d020831364b4ec48fad0bac792a272c9e0c451c9ea40ac6fd",
+      "download_url": "https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.3/Void.Browser_0.1.0_aarch64.dmg",
+      "scanned_at": "2026-07-17T20:24:26Z"
+    }
+  ]
 }

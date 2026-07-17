@@ -800,6 +800,22 @@ a.download-fmt:hover {
 
 .download-all-link a:hover { text-decoration: underline; }
 
+.download-unsigned-note {
+  text-align: center;
+  max-width: 640px;
+  margin: 16px auto 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.download-unsigned-note a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.download-unsigned-note a:hover { text-decoration: underline; }
+
 /* Safety scan scores — static JSON, no third-party widgets */
 .scan-scores {
   text-align: center;
