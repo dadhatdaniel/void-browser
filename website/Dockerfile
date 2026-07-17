@@ -6,6 +6,12 @@ COPY style.css /usr/share/nginx/html/
 COPY robots.txt /usr/share/nginx/html/
 COPY sitemap.xml /usr/share/nginx/html/
 COPY ai.txt /usr/share/nginx/html/
+COPY favicon.ico /usr/share/nginx/html/
+COPY favicon-32.png /usr/share/nginx/html/
+COPY favicon-192.png /usr/share/nginx/html/
+COPY favicon-512.png /usr/share/nginx/html/
+COPY apple-touch-icon.png /usr/share/nginx/html/
+COPY site.webmanifest /usr/share/nginx/html/
 RUN mkdir -p /usr/share/nginx/html/.well-known
 COPY tdmrep.json /usr/share/nginx/html/.well-known/tdmrep.json
 
