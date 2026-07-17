@@ -264,24 +264,6 @@ nav.scrolled {
   line-height: 1.8;
 }
 
-.hero-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: center;
-  margin-bottom: 32px;
-}
-
-.hero-badges img {
-  height: 22px;
-  border-radius: 4px;
-  transition: transform 0.15s ease;
-}
-
-.hero-badges a:hover img {
-  transform: translateY(-1px);
-}
-
 .hero-cta {
   display: flex;
   gap: 16px;
@@ -672,7 +654,7 @@ nav.scrolled {
   font-size: 14px;
   color: var(--text-dim);
   margin-top: -8px;
-  margin-bottom: 40px;
+  margin-bottom: 20px;
 }
 
 .download-release-meta a {
@@ -681,6 +663,28 @@ nav.scrolled {
 }
 
 .download-release-meta a:hover { text-decoration: underline; }
+
+.download-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  align-items: center;
+  margin: 0 auto 36px;
+  max-width: 720px;
+}
+
+.download-badges img {
+  height: 22px;
+  border-radius: 4px;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+  opacity: 0.92;
+}
+
+.download-badges a:hover img {
+  transform: translateY(-1px);
+  opacity: 1;
+}
 
 .download-card {
   padding: 32px 24px;
