@@ -1,7 +1,9 @@
 // Void Browser — User Configuration
 // Local-only TOML config, no cloud sync, no telemetry
 
-use crate::privacy::{CookiePolicy, FingerprintResistance, HttpsPolicy, SecurityLevel, WebRtcPolicy};
+use crate::privacy::{
+    CookiePolicy, FingerprintResistance, HttpsPolicy, SecurityLevel, WebRtcPolicy,
+};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
