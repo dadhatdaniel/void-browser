@@ -39,7 +39,9 @@ variables:
   CARGO_HOME: "${CI_PROJECT_DIR}/.cargo"
   RUST_BACKTRACE: "1"
   RUSTFLAGS: "-D warnings"
-  # Use latest stable Rust (needs 1.85+ for edition2024 deps)
+  # Custom CI image with all deps pre-installed (saves ~2min per job)
+  # Build: docker build -t void-ci ci/ && docker tag void-ci registry.example.com/void-ci
+  # Until custom image is pushed, fall back to rust:latest + apt-get
   RUST_IMAGE: "rust:latest"
 
 # ══════════════════════════════════════════════════

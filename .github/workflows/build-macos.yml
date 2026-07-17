@@ -1,0 +1,132 @@
+# ═══════════════════════════════════════════════════
+# Void Browser — macOS Build (GitHub Actions)
+#
+# Triggered on tags pushed from GitLab mirror.
+# Builds .dmg installer on GitHub's free macOS runners.
+# Artifacts are attached to the GitHub Release.
+#
+# Source of truth: GitLab (lightfootcloud/void-browser)
+# This repo is a read-only mirror for macOS CI only.
+# ═══════════════════════════════════════════════════
+
+name: Build macOS
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Download full filter lists
+        run: |
+          cd filters
+          curl -sfL "https://easylist.to/easylist/easylist.txt" -o easylist-full.txt
+          curl -sfL "https://easylist.to/easylist/easyprivacy.txt" -o easyprivacy-full.txt
+          echo "Filter lists downloaded:"
+          wc -l easylist-full.txt easyprivacy-full.txt
+
+      - name: Build macOS .dmg
+        run: cargo tauri build
+
+      - name: List artifacts
+        run: |
+          echo "=== macOS Package ==="
+          find src-tauri/target/release/bundle -name '*.dmg' -exec ls -lh {} \;
+          echo ""
+          echo "=== Checksums ==="
+          find src-tauri/target/release/bundle -name '*.dmg' -exec shasum -a 256 {} \;
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: void-browser-macos-${{ github.ref_name }}
+          path: |
+            src-tauri/target/release/bundle/dmg/*.dmg
+
+      - name: Create GitHub Release (or add to existing)
+        uses: softprops/action-gh-release@v2
+        with:
+          files: src-tauri/target/release/bundle/dmg/*.dmg
+          tag_name: ${{ github.ref_name }}
+          name: "Void Browser ${{ github.ref_name }}"
+          body: |
+            ## macOS Build
+            
+            Download the .dmg installer below.
+            
+            Verify with: `shasum -a 256 void-browser-*.dmg`
+            
+            > Full release notes and Linux/Windows builds available on [GitLab](https://gitlab.lightfoot.cloud/lightfootcloud/void-browser/-/releases/${{ github.ref_name }}).
+          draft: false
+          prerelease: false
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Download full filter lists
+        shell: bash
+        run: |
+          cd filters
+          curl -sfL "https://easylist.to/easylist/easylist.txt" -o easylist-full.txt
+          curl -sfL "https://easylist.to/easylist/easyprivacy.txt" -o easyprivacy-full.txt
+          wc -l easylist-full.txt easyprivacy-full.txt
+
+      - name: Build Windows .msi + .exe
+        run: cargo tauri build
+
+      - name: List artifacts
+        shell: bash
+        run: |
+          echo "=== Windows Packages ==="
+          find src-tauri/target/release/bundle -name '*.msi' -o -name '*.exe' | head -10
+          find src-tauri/target/release/bundle \( -name '*.msi' -o -name '*.exe' \) -exec ls -lh {} \;
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: void-browser-windows-${{ github.ref_name }}
+          path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe
+
+      - name: Add to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe
+          tag_name: ${{ github.ref_name }}
