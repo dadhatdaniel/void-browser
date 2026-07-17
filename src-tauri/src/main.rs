@@ -126,7 +126,7 @@ fn main() {
         })
         .manage(BrowserState::default())
         .setup(|app| {
-            browser::attach_resize_handler(&app.handle())?;
+            browser::attach_resize_handler(app.handle())?;
             updater::spawn_startup_check(app.handle().clone());
             Ok(())
         })

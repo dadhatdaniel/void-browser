@@ -46,8 +46,8 @@ fn content_bounds(
 ) -> Result<(LogicalPosition<f64>, LogicalSize<f64>), String> {
     let scale = window.scale_factor().map_err(|e| e.to_string())?;
     let size = window.inner_size().map_err(|e| e.to_string())?;
-    let width = f64::from(size.width) / f64::from(scale);
-    let height = f64::from(size.height) / f64::from(scale);
+    let width = f64::from(size.width) / scale;
+    let height = f64::from(size.height) / scale;
     let content_h = (height - chrome_height).max(1.0);
     Ok((
         LogicalPosition::new(0.0, chrome_height),
