@@ -18,29 +18,40 @@ pub struct TabManager {
     active_id: Option<String>,
 }
 
+impl Default for TabManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TabManager {
     pub fn new() -> Self {
-        let mut manager = TabManager {
+        TabManager {
             tabs: Vec::new(),
             active_id: None,
-        };
-        // Open with one blank tab
-        manager.create(None);
-        manager
+        }
     }
 
     pub fn create(&mut self, url: Option<String>) -> Tab {
         let id = Uuid::new_v4().to_string();
+        let url = url.unwrap_or_else(|| "void://newtab".to_string());
+        let title = if url == "void://newtab" {
+            "New Tab".to_string()
+        } else if url == "void://settings" {
+            "Settings".to_string()
+        } else {
+            UrlHost::from(&url)
+        };
+
         let tab = Tab {
             id: id.clone(),
-            title: "New Tab".to_string(),
-            url: url.unwrap_or_else(|| "void://newtab".to_string()),
+            title,
+            url,
             active: true,
             loading: false,
             pinned: false,
         };
 
-        // Deactivate current tab
         if let Some(ref active) = self.active_id {
             if let Some(t) = self.tabs.iter_mut().find(|t| t.id == *active) {
                 t.active = false;
@@ -54,13 +65,12 @@ impl TabManager {
 
     pub fn close(&mut self, id: &str) -> Option<String> {
         if self.tabs.len() <= 1 {
-            return None; // Don't close last tab
+            return None;
         }
 
         let pos = self.tabs.iter().position(|t| t.id == id)?;
         self.tabs.remove(pos);
 
-        // If we closed the active tab, activate the nearest one
         if self.active_id.as_deref() == Some(id) {
             let new_pos = if pos >= self.tabs.len() {
                 self.tabs.len() - 1
@@ -90,7 +100,47 @@ impl TabManager {
         }
     }
 
+    pub fn set_url(&mut self, id: &str, url: &str) {
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == id) {
+            t.url = url.to_string();
+        }
+    }
+
+    pub fn set_title(&mut self, id: &str, title: &str) {
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == id) {
+            let trimmed = title.trim();
+            if !trimmed.is_empty() {
+                t.title = trimmed.to_string();
+            }
+        }
+    }
+
+    pub fn set_loading(&mut self, id: &str, loading: bool) {
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == id) {
+            t.loading = loading;
+        }
+    }
+
+    pub fn get(&self, id: &str) -> Option<&Tab> {
+        self.tabs.iter().find(|t| t.id == id)
+    }
+
     pub fn list(&self) -> Vec<Tab> {
         self.tabs.clone()
+    }
+
+    pub fn active_id(&self) -> Option<String> {
+        self.active_id.clone()
+    }
+}
+
+struct UrlHost;
+
+impl UrlHost {
+    fn from(url: &str) -> String {
+        url::Url::parse(url)
+            .ok()
+            .and_then(|u| u.host_str().map(|h| h.to_string()))
+            .unwrap_or_else(|| url.to_string())
     }
 }

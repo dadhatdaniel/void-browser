@@ -4,23 +4,24 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod adblock;
+mod browser;
 mod config;
+mod gpu;
 mod privacy;
 mod tabs;
 
+use browser::BrowserState;
 use config::VoidConfig;
 use serde::Serialize;
 use std::sync::Mutex;
 use tauri::State;
 
 /// Global browser state
-struct AppState {
-    config: Mutex<VoidConfig>,
-    blocker: Mutex<adblock::AdBlocker>,
-    tabs: Mutex<tabs::TabManager>,
+pub struct AppState {
+    pub config: Mutex<VoidConfig>,
+    pub blocker: Mutex<adblock::AdBlocker>,
+    pub tabs: Mutex<tabs::TabManager>,
 }
-
-// ── Tauri Commands ──────────────────────────────────────────────
 
 #[derive(Serialize)]
 struct BlockResult {
@@ -29,7 +30,6 @@ struct BlockResult {
     filter: Option<String>,
 }
 
-/// Check if a URL should be blocked (ads/trackers)
 #[tauri::command]
 fn check_url(url: &str, source_url: &str, state: State<AppState>) -> BlockResult {
     let blocker = state.blocker.lock().unwrap();
@@ -41,63 +41,74 @@ fn check_url(url: &str, source_url: &str, state: State<AppState>) -> BlockResult
     }
 }
 
-/// Get current block stats
 #[tauri::command]
 fn get_stats(state: State<AppState>) -> adblock::BlockStats {
     let blocker = state.blocker.lock().unwrap();
     blocker.stats()
 }
 
-/// Apply privacy headers to a request
 #[tauri::command]
-fn get_privacy_headers() -> Vec<(String, String)> {
-    privacy::get_hardened_headers()
+fn get_privacy_headers() -> privacy::PrivacyHeaders {
+    privacy::get_privacy_headers()
 }
 
-/// Get user config
 #[tauri::command]
 fn get_config(state: State<AppState>) -> VoidConfig {
-    let config = state.config.lock().unwrap();
-    config.clone()
+    state.config.lock().unwrap().clone()
 }
 
-/// Update user config
+#[tauri::command]
+fn get_config_path() -> String {
+    config::config_path().display().to_string()
+}
+
 #[tauri::command]
 fn update_config(new_config: VoidConfig, state: State<AppState>) -> Result<(), String> {
-    let mut config = state.config.lock().unwrap();
-    *config = new_config.clone();
-    config::save_config(&new_config).map_err(|e| e.to_string())
-}
+    let rebuild_blocker = {
+        let current = state.config.lock().map_err(|e| e.to_string())?;
+        current.adblock_enabled != new_config.adblock_enabled
+            || current.tracker_blocking != new_config.tracker_blocking
+            || current.custom_filters != new_config.custom_filters
+    };
 
-// ── Tab Management Commands ─────────────────────────────────────
+    // Flush to disk first so a crash after save still keeps user changes.
+    config::save_config(&new_config).map_err(|e| e.to_string())?;
+
+    {
+        let mut config = state.config.lock().map_err(|e| e.to_string())?;
+        *config = new_config.clone();
+    }
+
+    if rebuild_blocker {
+        let mut blocker = state.blocker.lock().map_err(|e| e.to_string())?;
+        *blocker = adblock::AdBlocker::new(&new_config);
+    }
+    Ok(())
+}
 
 #[tauri::command]
 fn create_tab(url: Option<String>, state: State<AppState>) -> tabs::Tab {
-    let mut manager = state.tabs.lock().unwrap();
-    manager.create(url)
+    state.tabs.lock().unwrap().create(url)
 }
 
 #[tauri::command]
 fn close_tab(id: String, state: State<AppState>) -> Option<String> {
-    let mut manager = state.tabs.lock().unwrap();
-    manager.close(&id)
+    state.tabs.lock().unwrap().close(&id)
 }
 
 #[tauri::command]
 fn list_tabs(state: State<AppState>) -> Vec<tabs::Tab> {
-    let manager = state.tabs.lock().unwrap();
-    manager.list()
+    state.tabs.lock().unwrap().list()
 }
 
 #[tauri::command]
 fn set_active_tab(id: String, state: State<AppState>) -> bool {
-    let mut manager = state.tabs.lock().unwrap();
-    manager.set_active(&id)
+    state.tabs.lock().unwrap().set_active(&id)
 }
 
-// ── Main ────────────────────────────────────────────────────────
-
 fn main() {
+    gpu::configure_hardware_acceleration();
+
     let config = config::load_config().unwrap_or_default();
     let blocker = adblock::AdBlocker::new(&config);
     let tab_manager = tabs::TabManager::new();
@@ -109,16 +120,30 @@ fn main() {
             blocker: Mutex::new(blocker),
             tabs: Mutex::new(tab_manager),
         })
+        .manage(BrowserState::default())
+        .setup(|app| {
+            browser::attach_resize_handler(&app.handle())?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             check_url,
             get_stats,
             get_privacy_headers,
             get_config,
+            get_config_path,
             update_config,
             create_tab,
             close_tab,
             list_tabs,
             set_active_tab,
+            browser::set_chrome_height,
+            browser::navigate_browser,
+            browser::show_browser_content,
+            browser::hide_browser_content,
+            browser::close_browser_content,
+            browser::browser_reload,
+            browser::browser_go_back,
+            browser::browser_go_forward,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Void Browser");

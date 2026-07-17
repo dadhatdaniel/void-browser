@@ -164,10 +164,11 @@ fn config_dir() -> PathBuf {
     base.join("void-browser")
 }
 
-fn config_path() -> PathBuf {
+pub fn config_path() -> PathBuf {
     config_dir().join("config.toml")
 }
 
+/// Load user config. Creates defaults once on first run; never overwrites an existing file.
 pub fn load_config() -> Result<VoidConfig, Box<dyn std::error::Error>> {
     let path = config_path();
     if !path.exists() {
@@ -180,10 +181,27 @@ pub fn load_config() -> Result<VoidConfig, Box<dyn std::error::Error>> {
     Ok(config)
 }
 
+/// Persist config atomically (temp file → sync → rename) so a crash mid-save
+/// does not truncate the user's settings.
 pub fn save_config(config: &VoidConfig) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Write;
+
     let dir = config_dir();
     fs::create_dir_all(&dir)?;
+    let path = config_path();
+    let tmp = dir.join("config.toml.tmp");
     let content = toml::to_string_pretty(config)?;
-    fs::write(config_path(), content)?;
+
+    {
+        let mut file = fs::File::create(&tmp)?;
+        file.write_all(content.as_bytes())?;
+        file.sync_all()?;
+    }
+    fs::rename(&tmp, &path)?;
+
+    // Best-effort directory sync so the rename itself is durable on crash.
+    if let Ok(dir_file) = fs::File::open(&dir) {
+        let _ = dir_file.sync_all();
+    }
     Ok(())
 }

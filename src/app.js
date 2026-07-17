@@ -1,23 +1,24 @@
 // ═══════════════════════════════════════════════════
 // Void Browser — Frontend Controller
-// Handles tabs, navigation, settings, and Tauri IPC
+// Tabs, navigation, settings persistence, window chrome
 // ═══════════════════════════════════════════════════
 
-const { invoke } = window.__TAURI__?.core ?? {
-  // Fallback for development without Tauri
-  invoke: async (cmd, args) => {
-    console.log(`[dev] invoke: ${cmd}`, args);
-    return null;
-  }
-};
-
-// ── State ────────────────────────────────────────
+const tauri = window.__TAURI__;
+const invoke = tauri?.core?.invoke ?? (async (cmd, args) => {
+  console.log(`[dev] invoke: ${cmd}`, args);
+  return null;
+});
+const listen = tauri?.event?.listen ?? (async () => () => {});
+const getCurrentWindow = tauri?.window?.getCurrentWindow
+  ? () => tauri.window.getCurrentWindow()
+  : null;
 
 let tabs = [];
 let activeTabId = null;
 let blockedCount = 0;
-
-// ── DOM References ───────────────────────────────
+/** @type {object|null} full VoidConfig from Rust */
+let appConfig = null;
+let browsingActive = false;
 
 const tabsContainer = document.getElementById('tabs-container');
 const newTabBtn = document.getElementById('new-tab-btn');
@@ -28,21 +29,127 @@ const reloadBtn = document.getElementById('reload-btn');
 const shieldBtn = document.getElementById('shield-btn');
 const settingsBtn = document.getElementById('settings-btn');
 const searchInput = document.getElementById('search-input');
-const blockCount = document.getElementById('block-count');
+const blockCountEl = document.getElementById('block-count');
 const statBlocked = document.getElementById('stat-blocked');
 const newtabPage = document.getElementById('newtab-page');
 const settingsPage = document.getElementById('settings-page');
+const chromeEl = document.getElementById('chrome');
+const securityIndicator = document.getElementById('security-indicator');
 
-// ── Tab Management ───────────────────────────────
+const SEARCH_URLS = {
+  DuckDuckGo: (q) => `https://duckduckgo.com/?q=${encodeURIComponent(q)}`,
+  Brave: (q) => `https://search.brave.com/search?q=${encodeURIComponent(q)}`,
+  Startpage: (q) => `https://www.startpage.com/sp/search?query=${encodeURIComponent(q)}`,
+  SearXNG: (q) => `https://searx.be/search?q=${encodeURIComponent(q)}`,
+};
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str ?? '';
+  return div.innerHTML;
+}
+
+function themeCssName(theme) {
+  if (!theme || typeof theme === 'string') {
+    const t = String(theme || 'Dark');
+    return t.toLowerCase() === 'midnight' ? 'midnight'
+      : t.toLowerCase() === 'light' ? 'light' : 'dark';
+  }
+  if (theme.Custom) return 'dark';
+  if ('Midnight' in theme || theme === 'Midnight') return 'midnight';
+  if ('Light' in theme || theme === 'Light') return 'light';
+  return 'dark';
+}
+
+function enumName(value, fallback) {
+  if (value == null) return fallback;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object') {
+    const keys = Object.keys(value);
+    if (keys.length) return keys[0];
+  }
+  return fallback;
+}
+
+function applyAppearance(config) {
+  if (!config) return;
+  const theme = enumName(config.theme, 'Dark');
+  document.documentElement.setAttribute('data-theme', themeCssName(theme));
+  document.body.classList.toggle('compact', !!config.compact_mode);
+  if (config.font_size) {
+    document.body.style.fontSize = `${config.font_size}px`;
+  }
+  const engine = enumName(config.search_engine, 'DuckDuckGo');
+  if (searchInput) {
+    searchInput.placeholder = `Search with ${engine === 'Brave' ? 'Brave Search' : engine}`;
+  }
+}
+
+function updateNavButtons(enabled) {
+  backBtn.disabled = !enabled;
+  forwardBtn.disabled = !enabled;
+  reloadBtn.disabled = !enabled;
+}
+
+function updateBlockCount(n) {
+  blockedCount = n ?? blockedCount;
+  if (blockCountEl) blockCountEl.textContent = String(blockedCount);
+  if (statBlocked) statBlocked.textContent = String(blockedCount);
+}
+
+function setSecurityIndicator(url) {
+  if (!securityIndicator) return;
+  const secure = !url || url.startsWith('https://') || url.startsWith('void://');
+  securityIndicator.classList.toggle('insecure', !secure);
+}
+
+async function reportChromeHeight() {
+  if (!chromeEl) return;
+  const height = Math.ceil(chromeEl.getBoundingClientRect().height);
+  try {
+    await invoke('set_chrome_height', { height });
+  } catch (_) { /* dev */ }
+}
+
+async function hideContent() {
+  browsingActive = false;
+  try {
+    await invoke('hide_browser_content');
+  } catch (_) { /* dev */ }
+  updateNavButtons(false);
+}
+
+async function showContentFor(tabId) {
+  browsingActive = true;
+  try {
+    await invoke('show_browser_content', { tabId });
+  } catch (_) { /* dev */ }
+  updateNavButtons(true);
+}
+
+function showPage(page) {
+  newtabPage.classList.remove('active');
+  settingsPage.classList.remove('active');
+  document.getElementById('webview-container')?.classList.remove('active');
+
+  if (page === 'newtab') {
+    newtabPage.classList.add('active');
+  } else if (page === 'settings') {
+    settingsPage.classList.add('active');
+  } else if (page === 'webview') {
+    document.getElementById('webview-container')?.classList.add('active');
+  }
+}
 
 function renderTabs() {
   tabsContainer.innerHTML = '';
-  tabs.forEach(tab => {
+  tabs.forEach((tab) => {
     const el = document.createElement('div');
-    el.className = `tab${tab.active ? ' active' : ''}`;
+    el.className = `tab${tab.active ? ' active' : ''}${tab.loading ? ' loading' : ''}`;
+    el.title = tab.url || tab.title;
     el.innerHTML = `
       <span class="tab-title">${escapeHtml(tab.title)}</span>
-      <span class="tab-close" data-id="${tab.id}">&times;</span>
+      <span class="tab-close" data-id="${tab.id}" title="Close">&times;</span>
     `;
     el.addEventListener('click', (e) => {
       if (e.target.classList.contains('tab-close')) {
@@ -55,207 +162,428 @@ function renderTabs() {
   });
 }
 
+function isInternalUrl(url) {
+  return !url || url.startsWith('void://');
+}
+
+async function activateTabView(tab) {
+  if (!tab) return;
+  urlBar.value = isInternalUrl(tab.url) ? '' : tab.url;
+  setSecurityIndicator(tab.url);
+
+  if (tab.url === 'void://settings') {
+    await hideContent();
+    showPage('settings');
+    await populateSettingsForm();
+  } else if (isInternalUrl(tab.url)) {
+    await hideContent();
+    showPage('newtab');
+  } else {
+    showPage('webview');
+    await showContentFor(tab.id);
+  }
+  updateNavButtons(!isInternalUrl(tab.url));
+}
+
 async function createTab(url) {
   try {
     const tab = await invoke('create_tab', { url: url || null });
     if (tab) {
+      tabs.forEach((t) => { t.active = false; });
       tabs.push(tab);
       activeTabId = tab.id;
-      tabs.forEach(t => t.active = t.id === activeTabId);
       renderTabs();
-      showPage('newtab');
-      urlBar.value = '';
-      if (searchInput) searchInput.focus();
+      await activateTabView(tab);
+      if (!url || url === 'void://newtab') {
+        searchInput?.focus();
+      }
+      return;
     }
-  } catch (e) {
-    // Fallback for dev mode
-    const id = 'tab-' + Date.now();
-    const tab = { id, title: 'New Tab', url: url || 'void://newtab', active: true };
-    tabs.forEach(t => t.active = false);
-    tabs.push(tab);
-    activeTabId = id;
-    renderTabs();
-    showPage('newtab');
-    urlBar.value = '';
-    if (searchInput) searchInput.focus();
-  }
+  } catch (_) { /* fall through */ }
+
+  const id = `tab-${Date.now()}`;
+  const tab = { id, title: 'New Tab', url: url || 'void://newtab', active: true, loading: false };
+  tabs.forEach((t) => { t.active = false; });
+  tabs.push(tab);
+  activeTabId = id;
+  renderTabs();
+  await activateTabView(tab);
 }
 
 async function closeTab(id) {
   if (tabs.length <= 1) return;
-
   try {
-    const newActiveId = await invoke('close_tab', { id });
-    tabs = tabs.filter(t => t.id !== id);
-    if (newActiveId) {
-      activeTabId = newActiveId;
-      tabs.forEach(t => t.active = t.id === activeTabId);
-    }
-  } catch (e) {
-    tabs = tabs.filter(t => t.id !== id);
-    if (activeTabId === id && tabs.length > 0) {
-      activeTabId = tabs[tabs.length - 1].id;
-      tabs[tabs.length - 1].active = true;
+    await invoke('close_browser_content', { tabId: id });
+  } catch (_) { /* ok */ }
+
+  let newActiveId = null;
+  try {
+    newActiveId = await invoke('close_tab', { id });
+  } catch (_) {
+    tabs = tabs.filter((t) => t.id !== id);
+    if (activeTabId === id && tabs.length) {
+      newActiveId = tabs[tabs.length - 1].id;
     }
   }
+
+  tabs = tabs.filter((t) => t.id !== id);
+  if (newActiveId) {
+    activeTabId = newActiveId;
+    tabs.forEach((t) => { t.active = t.id === activeTabId; });
+  }
   renderTabs();
+  const tab = tabs.find((t) => t.id === activeTabId);
+  await activateTabView(tab);
 }
 
-function switchTab(id) {
-  tabs.forEach(t => t.active = t.id === id);
+async function switchTab(id) {
+  try {
+    await invoke('set_active_tab', { id });
+  } catch (_) { /* ok */ }
+  tabs.forEach((t) => { t.active = t.id === id; });
   activeTabId = id;
   renderTabs();
-
-  const tab = tabs.find(t => t.id === id);
-  if (tab) {
-    urlBar.value = tab.url === 'void://newtab' ? '' : tab.url;
-    if (tab.url === 'void://newtab') showPage('newtab');
-    else if (tab.url === 'void://settings') showPage('settings');
-  }
+  const tab = tabs.find((t) => t.id === id);
+  await activateTabView(tab);
 }
 
-// ── Navigation ───────────────────────────────────
+function resolveNavigateUrl(input) {
+  let url = (input || '').trim();
+  if (!url) return null;
+  if (url === 'void://newtab' || url === 'void://settings') return url;
 
-function navigate(url) {
+  if (!url.includes('://')) {
+    if (url.includes('.') && !url.includes(' ')) {
+      const httpsOnly = enumName(appConfig?.https_policy, 'Strict') === 'Strict';
+      url = (httpsOnly ? 'https://' : 'http://') + url;
+    } else {
+      const engine = enumName(appConfig?.search_engine, 'DuckDuckGo');
+      const builder = SEARCH_URLS[engine] || SEARCH_URLS.DuckDuckGo;
+      url = builder(url);
+    }
+  }
+  return url;
+}
+
+async function navigate(raw) {
+  const url = resolveNavigateUrl(raw);
   if (!url) return;
 
-  // Handle internal pages
+  const tab = tabs.find((t) => t.id === activeTabId);
+  if (!tab) return;
+
   if (url === 'void://newtab') {
-    showPage('newtab');
+    tab.url = url;
+    tab.title = 'New Tab';
+    renderTabs();
+    await activateTabView(tab);
     return;
   }
   if (url === 'void://settings') {
-    showPage('settings');
+    tab.url = url;
+    tab.title = 'Settings';
+    renderTabs();
+    await activateTabView(tab);
     return;
   }
 
-  // Auto-add protocol
-  if (!url.includes('://')) {
-    if (url.includes('.') && !url.includes(' ')) {
-      url = 'https://' + url;
-    } else {
-      // Search query
-      url = `https://duckduckgo.com/?q=${encodeURIComponent(url)}`;
-    }
-  }
-
-  // Update tab
-  const tab = tabs.find(t => t.id === activeTabId);
-  if (tab) {
-    tab.url = url;
-    tab.title = new URL(url).hostname;
-    renderTabs();
-  }
-  urlBar.value = url;
-
-  // In a full build, this would navigate the webview
-  showPage('webview');
-  console.log(`[void] navigate: ${url}`);
-}
-
-function showPage(page) {
-  newtabPage.classList.remove('active');
-  settingsPage.classList.remove('active');
-  document.getElementById('webview-container').classList.remove('active');
-
-  switch (page) {
-    case 'newtab':
-      newtabPage.classList.add('active');
-      break;
-    case 'settings':
-      settingsPage.classList.add('active');
-      break;
-    case 'webview':
-      document.getElementById('webview-container').classList.add('active');
-      break;
-  }
-}
-
-// ── Privacy Shield Panel ─────────────────────────
-
-shieldBtn.addEventListener('click', async () => {
+  tab.url = url;
+  tab.loading = true;
   try {
-    const stats = await invoke('get_stats');
-    if (stats) {
-      blockedCount = stats.total_blocked;
-      updateBlockCount();
+    tab.title = new URL(url).hostname;
+  } catch (_) {
+    tab.title = url;
+  }
+  renderTabs();
+  urlBar.value = url;
+  setSecurityIndicator(url);
+  showPage('webview');
+
+  try {
+    await reportChromeHeight();
+    await invoke('navigate_browser', { tabId: tab.id, url });
+    browsingActive = true;
+    updateNavButtons(true);
+  } catch (e) {
+    console.error('[void] navigate failed', e);
+    tab.loading = false;
+    renderTabs();
+    showPage('newtab');
+    await hideContent();
+  }
+}
+
+async function populateSettingsForm() {
+  try {
+    appConfig = await invoke('get_config');
+  } catch (_) {
+    return;
+  }
+  if (!appConfig) return;
+
+  applyAppearance(appConfig);
+
+  const security = enumName(appConfig.security_level, 'Strict');
+  document.querySelectorAll('input[name="security"]').forEach((el) => {
+    el.checked = el.value === security;
+  });
+
+  const theme = enumName(appConfig.theme, 'Dark');
+  const themeSelect = document.getElementById('theme-select');
+  if (themeSelect) themeSelect.value = theme;
+
+  const fontSize = document.getElementById('font-size');
+  const fontDisplay = document.getElementById('font-size-display');
+  if (fontSize) {
+    fontSize.value = appConfig.font_size ?? 14;
+    if (fontDisplay) fontDisplay.textContent = `${fontSize.value}px`;
+  }
+
+  const compact = document.getElementById('compact-mode');
+  if (compact) compact.checked = !!appConfig.compact_mode;
+
+  const homepage = document.getElementById('homepage-input');
+  if (homepage) homepage.value = appConfig.homepage || 'void://newtab';
+
+  const searchEngine = document.getElementById('search-engine');
+  if (searchEngine) searchEngine.value = enumName(appConfig.search_engine, 'DuckDuckGo');
+
+  const adblock = document.getElementById('adblock-toggle');
+  if (adblock) adblock.checked = !!appConfig.adblock_enabled;
+
+  const tracker = document.getElementById('tracker-toggle');
+  if (tracker) tracker.checked = !!appConfig.tracker_blocking;
+
+  const https = document.getElementById('https-toggle');
+  if (https) https.checked = enumName(appConfig.https_policy, 'Strict') === 'Strict';
+
+  const fp = document.getElementById('fingerprint-toggle');
+  if (fp) {
+    const f = appConfig.fingerprint_resistance || {};
+    fp.checked = !!(f.spoof_canvas || f.spoof_webgl || f.spoof_audio);
+  }
+
+  const doh = document.getElementById('doh-select');
+  if (doh) doh.value = appConfig.dns_over_https || '';
+
+  const clearCache = document.getElementById('clear-cache-toggle');
+  if (clearCache) clearCache.checked = !!appConfig.clear_on_exit?.cache;
+
+  const clearHistory = document.getElementById('clear-history-toggle');
+  if (clearHistory) clearHistory.checked = !!appConfig.clear_on_exit?.history;
+
+  try {
+    const path = await invoke('get_config_path');
+    const pathEl = document.getElementById('config-path-display');
+    if (pathEl && path) pathEl.textContent = `Config: ${path}`;
+  } catch (_) { /* ok */ }
+}
+
+async function saveSettings() {
+  const status = document.getElementById('settings-status');
+  const setStatus = (msg, ok) => {
+    if (!status) return;
+    status.textContent = msg;
+    status.className = ok ? 'ok' : 'err';
+  };
+
+  let base;
+  try {
+    base = await invoke('get_config');
+  } catch (e) {
+    setStatus('Failed to read config', false);
+    return;
+  }
+  if (!base) {
+    setStatus('No config backend (dev mode)', false);
+    return;
+  }
+
+  const security = document.querySelector('input[name="security"]:checked')?.value || 'Strict';
+  const theme = document.getElementById('theme-select')?.value || 'Dark';
+  const fontSize = Number(document.getElementById('font-size')?.value || 14);
+  const compact = !!document.getElementById('compact-mode')?.checked;
+  const homepage = document.getElementById('homepage-input')?.value?.trim() || 'void://newtab';
+  const searchEngine = document.getElementById('search-engine')?.value || 'DuckDuckGo';
+  const adblockOn = !!document.getElementById('adblock-toggle')?.checked;
+  const trackerOn = !!document.getElementById('tracker-toggle')?.checked;
+  const httpsOnly = !!document.getElementById('https-toggle')?.checked;
+  const fpOn = !!document.getElementById('fingerprint-toggle')?.checked;
+  const doh = document.getElementById('doh-select')?.value ?? '';
+  const clearCache = !!document.getElementById('clear-cache-toggle')?.checked;
+  const clearHistory = !!document.getElementById('clear-history-toggle')?.checked;
+
+  const next = {
+    ...base,
+    homepage,
+    search_engine: searchEngine,
+    theme,
+    font_size: fontSize,
+    compact_mode: compact,
+    security_level: security,
+    adblock_enabled: adblockOn,
+    tracker_blocking: trackerOn,
+    https_policy: httpsOnly ? 'Strict' : 'Prefer',
+    dns_over_https: doh || null,
+    fingerprint_resistance: {
+      ...(base.fingerprint_resistance || {}),
+      spoof_canvas: fpOn,
+      spoof_webgl: fpOn,
+      spoof_audio: fpOn,
+      resist_font_enum: fpOn,
+    },
+    clear_on_exit: {
+      ...(base.clear_on_exit || {}),
+      cache: clearCache,
+      history: clearHistory,
+    },
+  };
+
+  // Security level presets adjust related policies
+  if (security === 'Standard') {
+    next.cookie_policy = 'AllowAll';
+    next.webrtc_policy = 'Default';
+  } else if (security === 'Strict') {
+    next.cookie_policy = 'BlockThirdParty';
+    next.webrtc_policy = 'DisableNonProxied';
+  } else if (security === 'Paranoid') {
+    next.cookie_policy = 'BlockAll';
+    next.webrtc_policy = 'Disabled';
+    next.fingerprint_resistance = {
+      ...next.fingerprint_resistance,
+      spoof_canvas: true,
+      spoof_webgl: true,
+      spoof_audio: true,
+      resist_font_enum: true,
+      uniform_navigator: true,
+    };
+  }
+
+  try {
+    await invoke('update_config', { newConfig: next });
+    appConfig = next;
+    applyAppearance(appConfig);
+    await reportChromeHeight();
+    setStatus('Saved — will persist after restart', true);
+    // Verify round-trip from disk-backed state
+    const verified = await invoke('get_config');
+    if (verified && enumName(verified.theme, '') === theme) {
+      setStatus('Saved', true);
     }
   } catch (e) {
-    // Dev mode — just toggle visual state
-    shieldBtn.classList.toggle('active');
+    console.error(e);
+    setStatus(`Save failed: ${e}`, false);
   }
-});
-
-function updateBlockCount() {
-  blockCount.textContent = blockedCount;
-  statBlocked.textContent = blockedCount;
 }
 
-// ── Event Listeners ──────────────────────────────
+// ── Window controls ──────────────────────────────
 
-// URL bar — navigate on Enter
+function wireWindowControls() {
+  const win = getCurrentWindow ? getCurrentWindow() : null;
+  document.getElementById('win-min')?.addEventListener('click', () => win?.minimize());
+  document.getElementById('win-max')?.addEventListener('click', () => win?.toggleMaximize());
+  document.getElementById('win-close')?.addEventListener('click', () => win?.close());
+}
+
+// ── Events ───────────────────────────────────────
+
 urlBar.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
-    navigate(urlBar.value.trim());
+    navigate(urlBar.value);
     urlBar.blur();
   }
 });
-
-// URL bar — select all on focus
 urlBar.addEventListener('focus', () => urlBar.select());
 
-// Search input — navigate on Enter
-searchInput.addEventListener('keydown', (e) => {
+searchInput?.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
-    const query = searchInput.value.trim();
-    if (query) {
-      navigate(query);
+    const q = searchInput.value.trim();
+    if (q) {
+      navigate(q);
       searchInput.value = '';
     }
   }
 });
 
-// New tab button
 newTabBtn.addEventListener('click', () => createTab());
-
-// Settings button
-settingsBtn.addEventListener('click', () => {
-  const tab = tabs.find(t => t.id === activeTabId);
+settingsBtn.addEventListener('click', async () => {
+  const tab = tabs.find((t) => t.id === activeTabId);
   if (tab) {
     tab.url = 'void://settings';
     tab.title = 'Settings';
     renderTabs();
   }
   urlBar.value = '';
+  await hideContent();
   showPage('settings');
+  await populateSettingsForm();
 });
 
-// Keyboard shortcuts
+backBtn.addEventListener('click', async () => {
+  if (!activeTabId || !browsingActive) return;
+  try { await invoke('browser_go_back', { tabId: activeTabId }); } catch (_) { /* ok */ }
+});
+forwardBtn.addEventListener('click', async () => {
+  if (!activeTabId || !browsingActive) return;
+  try { await invoke('browser_go_forward', { tabId: activeTabId }); } catch (_) { /* ok */ }
+});
+reloadBtn.addEventListener('click', async () => {
+  if (!activeTabId) return;
+  const tab = tabs.find((t) => t.id === activeTabId);
+  if (tab && !isInternalUrl(tab.url)) {
+    try { await invoke('browser_reload', { tabId: activeTabId }); } catch (_) { /* ok */ }
+  }
+});
+
+shieldBtn.addEventListener('click', async () => {
+  try {
+    const stats = await invoke('get_stats');
+    if (stats) updateBlockCount(stats.total_blocked ?? 0);
+  } catch (_) { /* ok */ }
+  shieldBtn.classList.toggle('active');
+});
+
+document.getElementById('settings-save-btn')?.addEventListener('click', saveSettings);
+
+document.getElementById('theme-select')?.addEventListener('change', (e) => {
+  document.documentElement.setAttribute('data-theme', themeCssName(e.target.value));
+});
+document.getElementById('font-size')?.addEventListener('input', (e) => {
+  const v = e.target.value;
+  const display = document.getElementById('font-size-display');
+  if (display) display.textContent = `${v}px`;
+  document.body.style.fontSize = `${v}px`;
+});
+document.getElementById('compact-mode')?.addEventListener('change', (e) => {
+  document.body.classList.toggle('compact', e.target.checked);
+  reportChromeHeight();
+});
+
 document.addEventListener('keydown', (e) => {
-  // Ctrl+T — New tab
   if (e.ctrlKey && e.key === 't') {
     e.preventDefault();
     createTab();
   }
-  // Ctrl+W — Close tab
   if (e.ctrlKey && e.key === 'w') {
     e.preventDefault();
     if (activeTabId) closeTab(activeTabId);
   }
-  // Ctrl+L — Focus URL bar
   if (e.ctrlKey && e.key === 'l') {
     e.preventDefault();
     urlBar.focus();
   }
-  // Ctrl+, — Settings
   if (e.ctrlKey && e.key === ',') {
     e.preventDefault();
     settingsBtn.click();
   }
-  // Ctrl+Tab — Next tab
+  if (e.ctrlKey && e.key === 'r') {
+    e.preventDefault();
+    reloadBtn.click();
+  }
   if (e.ctrlKey && e.key === 'Tab') {
     e.preventDefault();
-    const idx = tabs.findIndex(t => t.id === activeTabId);
+    const idx = tabs.findIndex((t) => t.id === activeTabId);
+    if (idx < 0 || !tabs.length) return;
     const nextIdx = e.shiftKey
       ? (idx - 1 + tabs.length) % tabs.length
       : (idx + 1) % tabs.length;
@@ -263,45 +591,74 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// ── Theme & Settings ─────────────────────────────
+async function wireBackendEvents() {
+  await listen('tab-navigated', (event) => {
+    const { tabId, url } = event.payload || {};
+    const tab = tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    tab.url = url;
+    tab.loading = false;
+    if (tabId === activeTabId) {
+      urlBar.value = url;
+      setSecurityIndicator(url);
+    }
+    try {
+      tab.title = new URL(url).hostname || tab.title;
+    } catch (_) { /* keep */ }
+    renderTabs();
+  });
 
-const themeSelect = document.getElementById('theme-select');
-themeSelect?.addEventListener('change', () => {
-  document.documentElement.setAttribute('data-theme', themeSelect.value);
-  localStorage.setItem('void-theme', themeSelect.value);
-});
+  await listen('tab-title-changed', (event) => {
+    const { tabId, title, url } = event.payload || {};
+    const tab = tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    if (title) tab.title = title;
+    if (url) tab.url = url;
+    if (tabId === activeTabId && url) {
+      urlBar.value = url;
+      setSecurityIndicator(url);
+    }
+    renderTabs();
+  });
 
-// Load saved theme
-const savedTheme = localStorage.getItem('void-theme');
-if (savedTheme) {
-  document.documentElement.setAttribute('data-theme', savedTheme);
-  if (themeSelect) themeSelect.value = savedTheme;
+  await listen('block-stats-updated', (event) => {
+    const stats = event.payload;
+    if (stats && typeof stats.total_blocked === 'number') {
+      updateBlockCount(stats.total_blocked);
+    }
+  });
 }
-
-const compactToggle = document.getElementById('compact-mode');
-compactToggle?.addEventListener('change', () => {
-  document.body.classList.toggle('compact', compactToggle.checked);
-});
-
-const fontSizeSlider = document.getElementById('font-size');
-const fontSizeDisplay = document.getElementById('font-size-display');
-fontSizeSlider?.addEventListener('input', () => {
-  fontSizeDisplay.textContent = fontSizeSlider.value + 'px';
-  document.body.style.fontSize = fontSizeSlider.value + 'px';
-});
-
-// ── Utilities ────────────────────────────────────
-
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
-// ── Init ─────────────────────────────────────────
 
 (async function init() {
-  await createTab();
+  wireWindowControls();
+  await wireBackendEvents();
+
+  try {
+    appConfig = await invoke('get_config');
+    applyAppearance(appConfig);
+  } catch (_) {
+    applyAppearance({ theme: 'Dark', font_size: 14, compact_mode: false });
+  }
+
+  await reportChromeHeight();
+  window.addEventListener('resize', () => reportChromeHeight());
+  if (typeof ResizeObserver !== 'undefined' && chromeEl) {
+    new ResizeObserver(() => reportChromeHeight()).observe(chromeEl);
+  }
+
+  const homepage = appConfig?.homepage;
+  if (homepage && homepage !== 'void://newtab' && !homepage.startsWith('void://')) {
+    await createTab(homepage);
+    await navigate(homepage);
+  } else {
+    await createTab();
+  }
+
   shieldBtn.classList.add('active');
-  console.log('[void] Browser initialized — No tracking. No AI. Just browsing.');
+  try {
+    const stats = await invoke('get_stats');
+    if (stats) updateBlockCount(stats.total_blocked ?? 0);
+  } catch (_) { /* ok */ }
+
+  console.log('[void] Browser ready — settings persist to OS config dir');
 })();

@@ -8,6 +8,7 @@ use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::config::VoidConfig;
+use crate::privacy::BLOCKED_TELEMETRY_DOMAINS;
 
 /// Stats tracked per session
 #[derive(Serialize, Default)]
@@ -41,9 +42,10 @@ impl AdBlocker {
             let privacy = include_str!("../../filters/privacy-filters.txt");
             filter_set.add_filters(privacy.lines(), ParseOptions::default());
 
-            // Domain-level tracker fallbacks as network filters
+            // Domain-level tracker + telemetry fallbacks as network filters
             let domain_rules: Vec<String> = TRACKER_DOMAINS
                 .iter()
+                .chain(BLOCKED_TELEMETRY_DOMAINS.iter())
                 .map(|d| format!("||{d}^"))
                 .collect();
             filter_set.add_filters(domain_rules, ParseOptions::default());
