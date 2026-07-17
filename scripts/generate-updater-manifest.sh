@@ -2,7 +2,7 @@
 # Build Tauri updater latest.json from release artifacts + .sig files.
 #
 # Required env:
-#   TAG   — git tag (e.g. v0.1.0-alpha.5)
+#   TAG   — git tag (e.g. v0.1.0-alpha.6)
 #   REPO  — GitHub owner/name (default: dadhatdaniel/void-browser)
 #
 # Optional:

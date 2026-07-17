@@ -105,7 +105,7 @@ virus-scan:
   needs: []
   variables:
     # Bump when a newer GitHub Release exists with assets
-    VT_RELEASE_TAG: "v0.1.0-alpha.5"
+    VT_RELEASE_TAG: "v0.1.0-alpha.6"
     VT_WEBSITE_URL: "https://void.lightfoot.cloud"
   script:
     - |
