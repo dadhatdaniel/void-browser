@@ -5,6 +5,9 @@ COPY index.html /usr/share/nginx/html/
 COPY style.css /usr/share/nginx/html/
 COPY robots.txt /usr/share/nginx/html/
 COPY sitemap.xml /usr/share/nginx/html/
+COPY ai.txt /usr/share/nginx/html/
+RUN mkdir -p /usr/share/nginx/html/.well-known
+COPY tdmrep.json /usr/share/nginx/html/.well-known/tdmrep.json
 
 # Security-hardened nginx config — we practice what we preach
 RUN cat > /etc/nginx/conf.d/default.conf << 'EOF'
@@ -25,6 +28,12 @@ server {
     add_header Cross-Origin-Embedder-Policy "require-corp" always;
     add_header Cross-Origin-Opener-Policy "same-origin" always;
     add_header Cross-Origin-Resource-Policy "same-origin" always;
+
+    # AI Scraping Prevention Headers
+    add_header X-Robots-Tag "noai, noimageai" always;
+    add_header X-AI-Scraping "Disallowed. This content is not licensed for AI training." always;
+    add_header TDM-Reservation "1" always;  # W3C Text & Data Mining reservation
+    add_header X-Content-Rights "Not licensed for AI training, scraping, or data mining. All rights reserved. GPL-3.0 applies to the software, not to website content." always;
 
     location / {
         try_files $uri $uri/ /index.html;
