@@ -218,7 +218,7 @@ nav.scrolled {
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 120px 24px 80px;
+  padding: 120px 24px 96px;
   background: transparent;
 }
 
@@ -369,66 +369,108 @@ nav.scrolled {
   background: var(--border);
 }
 
+/* ── Shared section rhythm (no hard hairlines) ── */
+
+#privacy-promise,
+#manifesto,
+#features,
+#security,
+#no-features,
+#for-the-people,
+#download,
+#faq {
+  padding: 100px 24px;
+  border-top: none;
+  position: relative;
+}
+
+/* Soft atmospheric washes instead of stacked slab borders */
+#privacy-promise {
+  padding-top: 72px;
+  padding-bottom: 72px;
+  background: radial-gradient(ellipse 70% 80% at 50% 0%, rgba(74, 222, 128, 0.06), transparent 65%);
+}
+
+#manifesto {
+  text-align: center;
+  background: radial-gradient(ellipse 55% 70% at 50% 40%, rgba(90, 60, 140, 0.07), transparent 70%);
+}
+
+#features {
+  background: radial-gradient(ellipse 80% 50% at 20% 50%, rgba(40, 80, 120, 0.06), transparent 60%);
+}
+
+#security {
+  background: radial-gradient(ellipse 70% 55% at 80% 40%, rgba(90, 60, 140, 0.08), transparent 65%);
+}
+
+#no-features {
+  background: radial-gradient(ellipse 60% 50% at 50% 100%, rgba(239, 68, 68, 0.04), transparent 60%);
+}
+
+#for-the-people {
+  background: radial-gradient(ellipse 65% 60% at 50% 30%, rgba(74, 222, 128, 0.05), transparent 70%);
+}
+
+#download {
+  background: radial-gradient(ellipse 75% 55% at 50% 0%, rgba(139, 111, 212, 0.08), transparent 60%);
+}
+
+#faq {
+  background: radial-gradient(ellipse 50% 40% at 50% 100%, rgba(40, 80, 120, 0.05), transparent 55%);
+}
+
 /* ── Privacy Promise ──────────────────────────── */
 
-#privacy-promise {
-  padding: 80px 24px;
-  border-top: 1px solid var(--border);
-}
-
 .privacy-banner {
-  display: flex;
-  gap: 32px;
-  align-items: flex-start;
-  padding: 40px;
-  background: linear-gradient(135deg, rgba(74, 222, 128, 0.05) 0%, rgba(124, 92, 191, 0.05) 100%);
-  border: 1px solid rgba(74, 222, 128, 0.2);
-  border-radius: var(--radius);
-}
-
-.privacy-banner-icon {
-  font-size: 48px;
-  flex-shrink: 0;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  text-align: center;
 }
 
 .privacy-banner-content h2 {
-  font-size: 24px;
-  font-weight: 500;
-  margin-bottom: 16px;
+  font-size: 28px;
+  font-weight: 300;
+  letter-spacing: 2px;
+  margin-bottom: 20px;
   color: var(--success);
 }
 
 .privacy-banner-content p {
   color: var(--text-dim);
   font-size: 15px;
-  line-height: 1.7;
-  margin-bottom: 12px;
+  line-height: 1.75;
+  margin-bottom: 14px;
+}
+
+.privacy-banner-content p:last-of-type {
+  margin-bottom: 0;
 }
 
 .privacy-badges {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 16px;
+  justify-content: center;
+  gap: 10px 22px;
+  margin-top: 28px;
 }
 
 .privacy-badge {
-  padding: 6px 14px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  font-size: 12px;
-  color: var(--text-dim);
-  letter-spacing: 0.5px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
 }
 
 /* ── Manifesto ────────────────────────────────── */
-
-#manifesto {
-  padding: 120px 24px;
-  text-align: center;
-  border-top: 1px solid var(--border);
-}
 
 #manifesto h2 {
   font-size: 32px;
@@ -446,11 +488,6 @@ nav.scrolled {
 }
 
 /* ── Features ─────────────────────────────────── */
-
-#features, #security, #no-features, #download, #faq {
-  padding: 120px 24px;
-  border-top: 1px solid var(--border);
-}
 
 #features h2, #security h2, #no-features h2, #download h2, #faq h2,
 #for-the-people h2 {
@@ -471,20 +508,19 @@ nav.scrolled {
 .features-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 16px;
+  gap: 32px 28px;
   margin-top: 48px;
 }
 
 .feature {
-  padding: 28px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  transition: border-color 0.3s, transform 0.2s;
+  padding: 8px 4px 16px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  transition: transform 0.2s;
 }
 
 .feature:hover {
-  border-color: #333;
   transform: translateY(-2px);
 }
 
@@ -516,15 +552,18 @@ nav.scrolled {
 
 .security-card {
   padding: 32px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
+  background: rgba(16, 14, 22, 0.45);
+  border: 1px solid transparent;
   border-radius: var(--radius);
   position: relative;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .security-card.featured {
-  border-color: var(--accent);
-  box-shadow: 0 0 30px rgba(124, 92, 191, 0.1);
+  border-color: rgba(139, 111, 212, 0.35);
+  background: rgba(24, 20, 34, 0.55);
+  box-shadow: 0 0 40px rgba(124, 92, 191, 0.08);
 }
 
 .security-level-badge {
@@ -566,7 +605,7 @@ nav.scrolled {
   padding: 6px 0;
   font-size: 13px;
   color: var(--text-dim);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
 .security-card li:last-child { border-bottom: none; }
@@ -587,9 +626,9 @@ nav.scrolled {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 16px;
-  background: var(--bg-card);
-  border-radius: 8px;
+  padding: 10px 4px;
+  background: none;
+  border-radius: 0;
   font-size: 14px;
   color: var(--text-dim);
 }
@@ -601,11 +640,6 @@ nav.scrolled {
 }
 
 /* ── For the People ───────────────────────────── */
-
-#for-the-people {
-  padding: 120px 24px;
-  border-top: 1px solid var(--border);
-}
 
 .people-banner {
   text-align: center;
@@ -633,16 +667,16 @@ nav.scrolled {
 .people-values {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
-  margin-top: 40px;
+  gap: 28px;
+  margin-top: 48px;
   text-align: left;
 }
 
 .value {
-  padding: 20px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  padding: 4px 0;
+  background: none;
+  border: none;
+  border-radius: 0;
 }
 
 .value strong {
@@ -672,17 +706,20 @@ nav.scrolled {
 
 .download-card {
   padding: 32px 24px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
+  background: rgba(16, 14, 22, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: var(--radius);
   text-align: center;
   text-decoration: none;
   color: var(--text);
-  transition: border-color 0.3s, transform 0.2s;
+  transition: border-color 0.3s, transform 0.2s, background 0.3s;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .download-card:hover {
-  border-color: var(--accent);
+  border-color: rgba(139, 111, 212, 0.45);
+  background: rgba(24, 20, 34, 0.65);
   transform: translateY(-2px);
 }
 
@@ -721,10 +758,10 @@ nav.scrolled {
 .verification-info, .build-source {
   text-align: center;
   margin-top: 40px;
-  padding: 24px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  padding: 28px 8px 8px;
+  background: none;
+  border: none;
+  border-radius: 0;
   max-width: 700px;
   margin-left: auto;
   margin-right: auto;
@@ -765,15 +802,15 @@ nav.scrolled {
 .faq-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 16px;
+  gap: 28px 32px;
   margin-top: 48px;
 }
 
 .faq-item {
-  padding: 24px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  padding: 8px 4px 20px;
+  background: none;
+  border: none;
+  border-radius: 0;
 }
 
 .faq-item h3 {
@@ -800,8 +837,9 @@ nav.scrolled {
 /* ── Footer ───────────────────────────────────── */
 
 footer {
-  padding: 40px 24px 24px;
-  border-top: 1px solid var(--border);
+  padding: 56px 24px 32px;
+  border-top: none;
+  background: linear-gradient(180deg, transparent 0%, rgba(5, 4, 10, 0.55) 100%);
 }
 
 .footer-inner {
@@ -845,8 +883,8 @@ footer {
 
 .footer-privacy {
   text-align: center;
-  padding-top: 20px;
-  border-top: 1px solid var(--border);
+  padding-top: 28px;
+  border-top: none;
 }
 
 .footer-privacy p {
@@ -885,9 +923,15 @@ footer {
 
   .hero-stat-divider { display: none; }
 
-  .privacy-banner {
-    flex-direction: column;
-    padding: 24px;
+  #privacy-promise,
+  #manifesto,
+  #features,
+  #security,
+  #no-features,
+  #for-the-people,
+  #download,
+  #faq {
+    padding: 72px 20px;
   }
 
   .footer-inner {
