@@ -45,7 +45,10 @@ server {
         add_header Cache-Control "public, immutable";
     }
 
-    # Block common exploit paths
+    # Allow .well-known (TDM protocol, ACME, etc)
+    location ^~ /.well-known/ { allow all; }
+
+    # Block dotfiles (except .well-known above)
     location ~ /\. { deny all; }
     location ~ ~$ { deny all; }
     location ~* /(wp-admin|wp-login|xmlrpc|\.env|\.git|\.svn|\.htaccess|cgi-bin) {
