@@ -1,12 +1,30 @@
 # ═══════════════════════════════════════════════════
 # Void Browser — CI/CD Pipeline
-# End-to-end: Lint → Audit → Build → Package → Sign → Release → Deploy
 #
-# WHAT CREATES DOWNLOADABLE PACKAGES:
-#   package-linux (on tags) → .deb + .AppImage via Tauri bundler
-#   sign-packages (on tags) → GPG signs + SHA-256 checksums
-#   release (on tags) → Creates GitLab Release with download links
-#   deploy-site (on main) → Deploys website container
+# PIPELINE STAGES (in order):
+#
+#   1. LINT (every push to main + MRs)
+#      - rustfmt        → Code formatting check
+#      - clippy         → Rust linter (advisory)
+#
+#   2. SECURITY (main + tags)
+#      - cargo-audit    → CVE vulnerability scan
+#      - license-check  → Dependency license compliance
+#
+#   3. BUILD (main + tags)
+#      - build-linux    → Compiles release binary + downloads filter lists
+#
+#   4. PACKAGE (tags only — creates downloadable installers)
+#      - package-linux  → .deb (Debian/Ubuntu) + .AppImage (universal Linux)
+#      - package-windows→ .msi + .exe via cargo-xwin cross-compilation
+#
+#   5. RELEASE (tags only)
+#      - release        → Creates GitLab Release with download links
+#
+#   6. DEPLOY-SITE (main, on website changes)
+#      - deploy-site    → Builds + deploys website container with health checks
+#
+# TO CREATE A RELEASE: git tag v0.1.0 && git push origin v0.1.0
 # ═══════════════════════════════════════════════════
 
 stages:
@@ -197,34 +215,6 @@ package-windows:
   rules:
     - if: $CI_COMMIT_TAG
 
-package-macos:
-  stage: package
-  tags:
-    - macos  # Requires a macOS GitLab runner (Apple SDK can't run in Linux Docker)
-  needs:
-    - job: build-linux
-      artifacts: true
-  before_script:
-    - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    - source $HOME/.cargo/env
-    - cargo install tauri-cli --version "^2" --locked
-  script:
-    - echo "=== Building macOS packages (.dmg) ==="
-    - cargo tauri build
-    - echo ""
-    - echo "=== Package inventory ==="
-    - find src-tauri/target/release/bundle -type f -name '*.dmg' -exec ls -lh {} \;
-    - echo ""
-    - echo "=== Package checksums ==="
-    - find src-tauri/target/release/bundle -type f -name '*.dmg' -exec shasum -a 256 {} \;
-  artifacts:
-    name: "void-browser-${CI_COMMIT_TAG}-macos"
-    paths:
-      - src-tauri/target/release/bundle/dmg/
-    expire_in: 90 days
-  allow_failure: true  # Only runs when a macOS runner is available
-  rules:
-    - if: $CI_COMMIT_TAG
 
 # ══════════════════════════════════════════════════
 # STAGE 5: RELEASE — Create GitLab release with download links
@@ -239,9 +229,7 @@ release:
     - job: package-windows
       artifacts: true
       optional: true
-    - job: package-macos
-      artifacts: true
-      optional: true
+
   script:
     - echo "=== Creating Release ${CI_COMMIT_TAG} ==="
     - echo "Linux artifacts:"
