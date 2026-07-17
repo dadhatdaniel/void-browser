@@ -102,12 +102,17 @@
   <!-- TDM (Text & Data Mining) Reservation Protocol -->
   <meta name="tdm-reservation" content="1">
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- Scroll-reactive void field -->
+  <div class="void-bg" aria-hidden="true">
+    <canvas id="void-canvas"></canvas>
+    <div class="void-nebula void-nebula-a"></div>
+    <div class="void-nebula void-nebula-b"></div>
+    <div class="void-vignette"></div>
+  </div>
+
   <!-- Nav -->
   <nav>
     <div class="nav-inner">
@@ -388,7 +393,7 @@
       <h2>Get Void</h2>
       <p class="section-desc">Free. Open source. Forever. No account required.</p>
       <div class="download-grid">
-        <a href="#" class="download-card" aria-label="Download for Linux">
+        <a href="https://github.com/dadhatdaniel/void-browser/releases/latest" class="download-card" aria-label="Download for Linux" rel="noopener noreferrer">
           <div class="download-icon">🐧</div>
           <h3>Linux</h3>
           <div class="download-formats">
@@ -398,7 +403,7 @@
           <span class="download-size">~8 MB</span>
         </a>
 
-        <a href="#" class="download-card" aria-label="Download for Windows">
+        <a href="https://github.com/dadhatdaniel/void-browser/releases/latest" class="download-card" aria-label="Download for Windows" rel="noopener noreferrer">
           <div class="download-icon">🪟</div>
           <h3>Windows</h3>
           <div class="download-formats">
@@ -407,13 +412,22 @@
           </div>
           <span class="download-size">~7 MB</span>
         </a>
+
+        <a href="https://github.com/dadhatdaniel/void-browser/releases/latest" class="download-card" aria-label="Download for macOS" rel="noopener noreferrer">
+          <div class="download-icon">🍎</div>
+          <h3>macOS</h3>
+          <div class="download-formats">
+            <span>.dmg</span>
+          </div>
+          <span class="download-size">~8 MB</span>
+        </a>
       </div>
 
       <!-- Verification -->
       <div class="verification-info">
         <h3>🔐 Verify Your Download</h3>
-        <p>Every release includes SHA-256 checksums and GPG signatures so you can verify the file hasn't been tampered with.</p>
-        <code>sha256sum --check void-browser-0.1.0-linux.sha256</code>
+        <p>Every release includes SHA-256 checksums so you can verify the file hasn't been tampered with. Grab <code style="display:inline;padding:2px 6px;background:var(--bg);border-radius:4px;">CHECKSUMS</code> from the release page.</p>
+        <code>sha256sum --check CHECKSUMS</code>
       </div>
 
 
@@ -472,20 +486,90 @@
   </footer>
 
   <script>
-    // Smooth scroll for anchor links
+    // Smooth scroll for in-page anchors only (ignore bare "#")
     document.querySelectorAll('a[href^="#"]').forEach(a => {
       a.addEventListener('click', e => {
+        const href = a.getAttribute('href');
+        if (!href || href === '#') return;
+        const target = document.querySelector(href);
+        if (!target) return;
         e.preventDefault();
-        const target = document.querySelector(a.getAttribute('href'));
-        if (target) target.scrollIntoView({ behavior: 'smooth' });
+        target.scrollIntoView({ behavior: 'smooth' });
       });
     });
 
-    // Nav background on scroll
     const nav = document.querySelector('nav');
+    const root = document.documentElement;
+    const nebulaA = document.querySelector('.void-nebula-a');
+    const nebulaB = document.querySelector('.void-nebula-b');
+
+    let ticking = false;
+    function onScroll() {
+      const y = window.scrollY || 0;
+      nav.classList.toggle('scrolled', y > 50);
+      root.style.setProperty('--scroll', String(y));
+      if (nebulaA) nebulaA.style.transform = `translate3d(0, ${y * -0.12}px, 0)`;
+      if (nebulaB) nebulaB.style.transform = `translate3d(0, ${y * -0.22}px, 0)`;
+      ticking = false;
+    }
     window.addEventListener('scroll', () => {
-      nav.classList.toggle('scrolled', window.scrollY > 50);
-    });
+      if (!ticking) {
+        requestAnimationFrame(onScroll);
+        ticking = true;
+      }
+    }, { passive: true });
+    onScroll();
+
+    // Parallax starfield — depth layers react to scroll
+    (function initVoidField() {
+      const canvas = document.getElementById('void-canvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d', { alpha: true });
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      let stars = [];
+      let w = 0, h = 0, dpr = 1;
+
+      function resize() {
+        dpr = Math.min(window.devicePixelRatio || 1, 2);
+        w = window.innerWidth;
+        h = window.innerHeight;
+        canvas.width = Math.floor(w * dpr);
+        canvas.height = Math.floor(h * dpr);
+        canvas.style.width = w + 'px';
+        canvas.style.height = h + 'px';
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const count = Math.min(220, Math.floor((w * h) / 9000));
+        stars = Array.from({ length: count }, () => ({
+          x: Math.random() * w,
+          y: Math.random() * h * 2.2,
+          z: 0.25 + Math.random() * 0.75,
+          r: 0.4 + Math.random() * 1.4,
+          a: 0.25 + Math.random() * 0.55
+        }));
+      }
+
+      function draw() {
+        const scrollY = window.scrollY || 0;
+        ctx.clearRect(0, 0, w, h);
+        for (const s of stars) {
+          const py = ((s.y - scrollY * s.z * 0.45) % (h * 2.2) + h * 2.2) % (h * 2.2) - h * 0.3;
+          const px = s.x + Math.sin((scrollY + s.y) * 0.0015 * s.z) * 8 * s.z;
+          ctx.beginPath();
+          ctx.fillStyle = `rgba(220, 210, 255, ${s.a * (0.55 + s.z * 0.45)})`;
+          ctx.arc(px, py, s.r * s.z, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        if (!reduceMotion) requestAnimationFrame(draw);
+      }
+
+      resize();
+      window.addEventListener('resize', resize, { passive: true });
+      if (reduceMotion) {
+        draw();
+      } else {
+        requestAnimationFrame(draw);
+      }
+    })();
   </script>
 </body>
 </html>

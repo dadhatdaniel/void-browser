@@ -1,8 +1,9 @@
 // Void Browser — Ad & Tracker Blocking Engine
 // Uses adblock-rust (same engine as Brave) with EasyList + EasyPrivacy
 
-use adblock::engine::Engine;
-use adblock::lists::{FilterSet, ParseOptions};
+use adblock::lists::ParseOptions;
+use adblock::request::Request;
+use adblock::{Engine, FilterSet};
 use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -85,7 +86,13 @@ impl AdBlocker {
     pub fn check(&self, url: &str, source_url: &str) -> MatchResult {
         self.total_checked.fetch_add(1, Ordering::Relaxed);
 
-        let result = self.engine.check_network_urls(url, source_url, "other");
+        let Ok(request) = Request::new(url, source_url, "other") else {
+            return MatchResult {
+                matched: false,
+                filter: None,
+            };
+        };
+        let result = self.engine.check_network_request(&request);
 
         if result.matched {
             self.total_blocked.fetch_add(1, Ordering::Relaxed);
@@ -93,7 +100,7 @@ impl AdBlocker {
 
         MatchResult {
             matched: result.matched,
-            filter: result.filter.map(|f| f.to_string()),
+            filter: result.filter,
         }
     }
 

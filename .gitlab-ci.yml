@@ -2,7 +2,7 @@
 # Void Browser — GitLab CI (Internal)
 #
 # BUILDS: All builds (Linux/Windows/macOS) run on GitHub Actions
-#         See: .github/workflows/build-macos.yml
+#         See: .github/workflows/build.yml
 #         Repo: https://github.com/dadhatdaniel/void-browser
 #
 # THIS PIPELINE HANDLES:

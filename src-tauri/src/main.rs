@@ -9,7 +9,7 @@ mod privacy;
 mod tabs;
 
 use config::VoidConfig;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::sync::Mutex;
 use tauri::State;
 

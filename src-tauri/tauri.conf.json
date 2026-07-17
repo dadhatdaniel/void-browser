@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/nicktrav/tauri/dev/core/tauri-config-schema/schema.json",
+  "$schema": "https://schema.tauri.app/config/2",
   "productName": "Void Browser",
   "version": "0.1.0",
   "identifier": "cloud.lightfoot.void-browser",
@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Void",
         "width": 1280,
         "height": 900,
