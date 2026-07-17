@@ -12,11 +12,31 @@ COPY favicon-192.png /usr/share/nginx/html/
 COPY favicon-512.png /usr/share/nginx/html/
 COPY apple-touch-icon.png /usr/share/nginx/html/
 COPY site.webmanifest /usr/share/nginx/html/
+COPY manifest.json /usr/share/nginx/html/
 RUN mkdir -p /usr/share/nginx/html/.well-known
 COPY tdmrep.json /usr/share/nginx/html/.well-known/tdmrep.json
 
 # Security-hardened nginx config — we practice what we preach
 RUN cat > /etc/nginx/conf.d/default.conf << 'EOF'
+# Correct MIME for PWA manifest (alpine default is often octet-stream)
+types {
+    text/html                                        html htm shtml;
+    text/css                                         css;
+    text/xml                                         xml;
+    image/gif                                        gif;
+    image/jpeg                                       jpeg jpg;
+    image/png                                        png;
+    image/svg+xml                                    svg svgz;
+    image/x-icon                                     ico;
+    application/javascript                           js;
+    application/json                                 json;
+    application/manifest+json                        webmanifest;
+    application/wasm                                 wasm;
+    font/woff                                        woff;
+    font/woff2                                       woff2;
+    text/plain                                       txt;
+}
+
 server {
     listen 80;
     root /usr/share/nginx/html;
@@ -38,15 +58,33 @@ server {
     # AI Scraping Prevention Headers
     add_header X-Robots-Tag "noai, noimageai" always;
     add_header X-AI-Scraping "Disallowed. This content is not licensed for AI training." always;
-    add_header TDM-Reservation "1" always;  # W3C Text & Data Mining reservation
+    add_header TDM-Reservation "1" always;
     add_header X-Content-Rights "Not licensed for AI training, scraping, or data mining. All rights reserved. GPL-3.0 applies to the software, not to website content." always;
+
+    # Explicit PWA manifests — correct type (CF often challenges *.webmanifest; prefer /manifest.json)
+    location = /manifest.json {
+        default_type application/manifest+json;
+        add_header Content-Type "application/manifest+json" always;
+        add_header Cache-Control "public, max-age=86400" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Cross-Origin-Resource-Policy "cross-origin" always;
+        try_files $uri =404;
+    }
+    location = /site.webmanifest {
+        default_type application/manifest+json;
+        add_header Content-Type "application/manifest+json" always;
+        add_header Cache-Control "public, max-age=86400" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Cross-Origin-Resource-Policy "cross-origin" always;
+        try_files $uri =404;
+    }
 
     location / {
         try_files $uri $uri/ /index.html;
     }
 
-    # Cache static assets
-    location ~* \.(css|js|png|jpg|ico|svg|woff2?)$ {
+    # Cache static assets (include webmanifest)
+    location ~* \.(css|js|png|jpg|ico|svg|woff2?|webmanifest)$ {
         expires 30d;
         add_header Cache-Control "public, immutable";
     }
@@ -54,8 +92,8 @@ server {
     # Allow .well-known (TDM protocol, ACME, etc)
     location ^~ /.well-known/ { allow all; }
 
-    # Block dotfiles (except .well-known above)
-    location ~ /\. { deny all; }
+    # Block hidden dotfiles only (/.git, /.env) — NOT filenames like site.webmanifest
+    location ~ /\.[^/]+ { deny all; }
     location ~ ~$ { deny all; }
     location ~* /(wp-admin|wp-login|xmlrpc|\.env|\.git|\.svn|\.htaccess|cgi-bin) {
         return 444;

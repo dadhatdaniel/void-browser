@@ -36,25 +36,19 @@ impl AdBlocker {
         if config.adblock_enabled {
             // Load bundled minimal filter lists (compiled into the binary)
             let easylist = include_str!("../../filters/easylist-minimal.txt");
-            filter_set.add_filters(
-                &easylist
-                    .lines()
-                    .map(std::string::ToString::to_string)
-                    .collect::<Vec<_>>(),
-                ParseOptions::default(),
-            );
+            filter_set.add_filters(easylist.lines(), ParseOptions::default());
 
             let privacy = include_str!("../../filters/privacy-filters.txt");
-            filter_set.add_filters(
-                &privacy
-                    .lines()
-                    .map(std::string::ToString::to_string)
-                    .collect::<Vec<_>>(),
-                ParseOptions::default(),
-            );
+            filter_set.add_filters(privacy.lines(), ParseOptions::default());
+
+            // Domain-level tracker fallbacks as network filters
+            let domain_rules: Vec<String> = TRACKER_DOMAINS
+                .iter()
+                .map(|d| format!("||{d}^"))
+                .collect();
+            filter_set.add_filters(domain_rules, ParseOptions::default());
 
             // Load full filter lists from runtime data directory if available
-            // These are downloaded by the installer or on first run
             if let Some(data_dir) = dirs::data_dir() {
                 let filters_dir = data_dir.join("void-browser").join("filters");
                 load_filter_file(&mut filter_set, &filters_dir.join("easylist-full.txt"));
@@ -64,13 +58,7 @@ impl AdBlocker {
 
         // Load user custom filters
         if let Some(ref custom) = config.custom_filters {
-            filter_set.add_filters(
-                &custom
-                    .iter()
-                    .map(std::string::ToString::to_string)
-                    .collect::<Vec<_>>(),
-                ParseOptions::default(),
-            );
+            filter_set.add_filters(custom.iter().map(String::as_str), ParseOptions::default());
         }
 
         let engine = Engine::from_filter_set(filter_set, true);
@@ -118,13 +106,7 @@ impl AdBlocker {
 /// Load a filter list file at runtime if it exists
 fn load_filter_file(filter_set: &mut FilterSet, path: &std::path::Path) {
     if let Ok(content) = std::fs::read_to_string(path) {
-        filter_set.add_filters(
-            &content
-                .lines()
-                .map(std::string::ToString::to_string)
-                .collect::<Vec<_>>(),
-            ParseOptions::default(),
-        );
+        filter_set.add_filters(content.lines(), ParseOptions::default());
     }
 }
 

@@ -79,7 +79,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-  <link rel="manifest" href="/site.webmanifest">
+  <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#7c5cbf">
   <meta name="msapplication-TileColor" content="#050505">
 
@@ -105,8 +105,10 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <!-- Scroll-reactive void field -->
+  <!-- Scroll-reactive void field (CSS layers + canvas; both move with scroll) -->
   <div class="void-bg" aria-hidden="true">
+    <div class="star-layer star-layer-far" id="stars-far"></div>
+    <div class="star-layer star-layer-mid" id="stars-mid"></div>
     <canvas id="void-canvas"></canvas>
     <div class="void-nebula void-nebula-a"></div>
     <div class="void-nebula void-nebula-b"></div>
@@ -502,73 +504,83 @@
     const root = document.documentElement;
     const nebulaA = document.querySelector('.void-nebula-a');
     const nebulaB = document.querySelector('.void-nebula-b');
-
+    const starsFar = document.getElementById('stars-far');
+    const starsMid = document.getElementById('stars-mid');
+    const canvas = document.getElementById('void-canvas');
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let scrollY = 0;
     let ticking = false;
-    function onScroll() {
-      const y = window.scrollY || 0;
-      nav.classList.toggle('scrolled', y > 50);
+
+    function applyParallax(y) {
+      scrollY = y;
       root.style.setProperty('--scroll', String(y));
-      if (nebulaA) nebulaA.style.transform = `translate3d(0, ${y * -0.12}px, 0)`;
-      if (nebulaB) nebulaB.style.transform = `translate3d(0, ${y * -0.22}px, 0)`;
+      // Strong, obvious layer motion (px) — far / mid / near
+      if (starsFar) starsFar.style.transform = `translate3d(0, ${y * -0.18}px, 0)`;
+      if (starsMid) starsMid.style.transform = `translate3d(0, ${y * -0.42}px, 0)`;
+      if (nebulaA) nebulaA.style.transform = `translate3d(${y * 0.04}px, ${y * -0.28}px, 0)`;
+      if (nebulaB) nebulaB.style.transform = `translate3d(${y * -0.06}px, ${y * -0.55}px, 0)`;
+      if (canvas) canvas.style.transform = `translate3d(0, ${y * -0.65}px, 0)`;
+      nav.classList.toggle('scrolled', y > 50);
+    }
+
+    function onScroll() {
+      applyParallax(window.scrollY || document.documentElement.scrollTop || 0);
       ticking = false;
     }
     window.addEventListener('scroll', () => {
+      if (reduceMotion) return;
       if (!ticking) {
         requestAnimationFrame(onScroll);
         ticking = true;
       }
     }, { passive: true });
-    onScroll();
+    applyParallax(window.scrollY || 0);
 
-    // Parallax starfield — depth layers react to scroll
+    // Near-field star dots on canvas (extra depth; moves with canvas transform + redraw)
     (function initVoidField() {
-      const canvas = document.getElementById('void-canvas');
-      if (!canvas) return;
+      if (!canvas || reduceMotion) return;
       const ctx = canvas.getContext('2d', { alpha: true });
-      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       let stars = [];
       let w = 0, h = 0, dpr = 1;
 
       function resize() {
         dpr = Math.min(window.devicePixelRatio || 1, 2);
         w = window.innerWidth;
-        h = window.innerHeight;
+        h = Math.max(window.innerHeight * 1.6, 900);
         canvas.width = Math.floor(w * dpr);
         canvas.height = Math.floor(h * dpr);
         canvas.style.width = w + 'px';
         canvas.style.height = h + 'px';
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        const count = Math.min(220, Math.floor((w * h) / 9000));
+        const count = Math.min(160, Math.floor((w * h) / 12000));
         stars = Array.from({ length: count }, () => ({
           x: Math.random() * w,
-          y: Math.random() * h * 2.2,
-          z: 0.25 + Math.random() * 0.75,
-          r: 0.4 + Math.random() * 1.4,
-          a: 0.25 + Math.random() * 0.55
+          y: Math.random() * h,
+          z: 0.5 + Math.random() * 1.2,
+          r: 0.8 + Math.random() * 1.8,
+          a: 0.35 + Math.random() * 0.55
         }));
       }
 
       function draw() {
-        const scrollY = window.scrollY || 0;
         ctx.clearRect(0, 0, w, h);
+        // Additional per-star drift relative to scroll (on top of canvas translate)
+        const drift = scrollY * 0.35;
         for (const s of stars) {
-          const py = ((s.y - scrollY * s.z * 0.45) % (h * 2.2) + h * 2.2) % (h * 2.2) - h * 0.3;
-          const px = s.x + Math.sin((scrollY + s.y) * 0.0015 * s.z) * 8 * s.z;
+          let py = (s.y - drift * s.z) % h;
+          if (py < 0) py += h;
+          const px = s.x + Math.sin((scrollY + s.y) * 0.002 * s.z) * 18 * s.z;
           ctx.beginPath();
-          ctx.fillStyle = `rgba(220, 210, 255, ${s.a * (0.55 + s.z * 0.45)})`;
-          ctx.arc(px, py, s.r * s.z, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(230, 220, 255, ${s.a})`;
+          ctx.arc(px, py, s.r, 0, Math.PI * 2);
           ctx.fill();
         }
-        if (!reduceMotion) requestAnimationFrame(draw);
+        requestAnimationFrame(draw);
       }
 
       resize();
       window.addEventListener('resize', resize, { passive: true });
-      if (reduceMotion) {
-        draw();
-      } else {
-        requestAnimationFrame(draw);
-      }
+      requestAnimationFrame(draw);
     })();
   </script>
 </body>

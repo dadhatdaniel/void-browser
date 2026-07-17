@@ -4,24 +4,22 @@
 use serde::Serialize;
 
 /// Security level presets
-#[derive(Clone, Serialize, serde::Deserialize, PartialEq)]
+#[derive(Clone, Default, Serialize, serde::Deserialize, PartialEq)]
 pub enum SecurityLevel {
     Standard, // Block ads + trackers, strip referrers
-    Strict,   // + block third-party cookies, disable WebRTC leak
+    #[default]
+    Strict, // + block third-party cookies, disable WebRTC leak
     Paranoid, // + resist fingerprinting, block all JS by default
-}
-
-impl Default for SecurityLevel {
-    fn default() -> Self {
-        SecurityLevel::Strict
-    }
 }
 
 /// Generate hardened HTTP headers for all requests
 pub fn get_hardened_headers() -> Vec<(String, String)> {
-    vec![
+    let mut headers = vec![
         // Prevent referrer leaking
-        ("Referrer-Policy".into(), "strict-origin-when-cross-origin".into()),
+        (
+            "Referrer-Policy".into(),
+            "strict-origin-when-cross-origin".into(),
+        ),
         // Deny iframe embedding (clickjacking protection)
         ("X-Frame-Options".into(), "DENY".into()),
         // Prevent MIME sniffing
@@ -29,15 +27,25 @@ pub fn get_hardened_headers() -> Vec<(String, String)> {
         // XSS protection
         ("X-XSS-Protection".into(), "1; mode=block".into()),
         // Strict transport security
-        ("Strict-Transport-Security".into(), "max-age=31536000; includeSubDomains".into()),
+        (
+            "Strict-Transport-Security".into(),
+            "max-age=31536000; includeSubDomains".into(),
+        ),
         // Permissions policy — disable dangerous APIs
-        ("Permissions-Policy".into(), 
-            "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()".into()),
+        (
+            "Permissions-Policy".into(),
+            "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()".into(),
+        ),
         // DNT (Do Not Track)
         ("DNT".into(), "1".into()),
         // Global Privacy Control
         ("Sec-GPC".into(), "1".into()),
-    ]
+    ];
+
+    // Document which request headers we strip — exposed for the UI / future proxy hook
+    let _ = stripped_request_headers();
+    let _ = blocked_telemetry_domains();
+    headers
 }
 
 /// Headers to strip from outgoing requests (tracking vectors)
@@ -73,17 +81,12 @@ pub fn blocked_telemetry_domains() -> Vec<&'static str> {
 }
 
 /// WebRTC policy to prevent IP leaks
-#[derive(Clone, Serialize, serde::Deserialize)]
+#[derive(Clone, Default, Serialize, serde::Deserialize)]
 pub enum WebRtcPolicy {
-    Default,           // Allow WebRTC (may leak local IP)
+    Default, // Allow WebRTC (may leak local IP)
+    #[default]
     DisableNonProxied, // Only allow through proxy/VPN
     Disabled,          // Fully disable WebRTC
-}
-
-impl Default for WebRtcPolicy {
-    fn default() -> Self {
-        WebRtcPolicy::DisableNonProxied
-    }
 }
 
 /// Fingerprint resistance measures
@@ -113,30 +116,20 @@ impl Default for FingerprintResistance {
 }
 
 /// Cookie policy
-#[derive(Clone, Serialize, serde::Deserialize)]
+#[derive(Clone, Default, Serialize, serde::Deserialize)]
 pub enum CookiePolicy {
     AllowAll,
+    #[default]
     BlockThirdParty, // Default — blocks cross-site cookies
-    BlockAll,        // Nuclear option
-    SessionOnly,     // Allow but clear on exit
-}
-
-impl Default for CookiePolicy {
-    fn default() -> Self {
-        CookiePolicy::BlockThirdParty
-    }
+    BlockAll,    // Nuclear option
+    SessionOnly, // Allow but clear on exit
 }
 
 /// HTTPS upgrade policy
-#[derive(Clone, Serialize, serde::Deserialize)]
+#[derive(Clone, Default, Serialize, serde::Deserialize)]
 pub enum HttpsPolicy {
     Prefer, // Upgrade when possible, allow HTTP fallback
+    #[default]
     Strict, // Block HTTP entirely (default)
     Off,    // No enforcement
-}
-
-impl Default for HttpsPolicy {
-    fn default() -> Self {
-        HttpsPolicy::Strict
-    }
 }
