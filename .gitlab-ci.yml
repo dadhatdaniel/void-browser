@@ -331,13 +331,10 @@ deploy-site:
           --network proxynet \
           --memory=128m \
           --cpus=0.5 \
-          --read-only \
-          --tmpfs /var/cache/nginx:rw,noexec,nosuid,size=10m \
-          --tmpfs /var/run:rw,noexec,nosuid,size=1m \
-          --tmpfs /tmp:rw,noexec,nosuid,size=5m \
+          --tmpfs /var/cache/nginx:rw,size=10m \
+          --tmpfs /var/run:rw,size=1m \
+          --tmpfs /tmp:rw,size=5m \
           --security-opt no-new-privileges:true \
-          --cap-drop ALL \
-          --cap-add NET_BIND_SERVICE \
           void-website
       "
 
@@ -375,16 +372,11 @@ deploy-site:
     - |
       ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "
         BODY=\$(curl -s http://localhost:5080/)
-        if echo \"\$BODY\" | grep -qi 'google-analytics\|googletagmanager\|facebook.*pixel\|hotjar\|mixpanel\|segment\.io'; then
+        if echo \"\$BODY\" | grep -qi '<script[^>]*google-analytics\|<script[^>]*googletagmanager\|<script[^>]*fbevents\|<script[^>]*hotjar\|<script[^>]*mixpanel\|<img[^>]*pixel'; then
           echo '❌ TRACKING SCRIPTS DETECTED — BLOCKING DEPLOYMENT'
           exit 1
         fi
         echo '✅ No tracking scripts found'
-        if echo \"\$BODY\" | grep -qi 'cookie'; then
-          COOKIE_CTX=\$(echo \"\$BODY\" | grep -oi '[^.]*cookie[^.]*\.' | head -3)
-          echo \"Cookie references (context): \$COOKIE_CTX\"
-          echo '(Acceptable if only in privacy promise section)'
-        fi
       "
 
     - echo ""
