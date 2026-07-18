@@ -295,13 +295,13 @@ fn set_shell_browsing(app: &AppHandle, browsing: bool) -> Result<(), String> {
 /// Create the host window + chrome as a *child* webview (not WebviewWindow).
 /// Must run from setup before any navigation.
 pub fn create_main_window(app: &AppHandle) -> Result<(), String> {
+    // opaque by default — WindowBuilder::transparent is macOS-gated
     let window = WindowBuilder::new(app, MAIN_WINDOW)
         .title("Void")
         .inner_size(1280.0, 900.0)
         .min_inner_size(640.0, 480.0)
         .resizable(true)
         .decorations(false)
-        .transparent(false)
         .shadow(true)
         .build()
         .map_err(|e| e.to_string())?;
