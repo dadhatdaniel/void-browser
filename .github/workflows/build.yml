@@ -162,14 +162,21 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         run: |
           set -euo pipefail
-          VERSION=$(jq -r .version src-tauri/tauri.conf.json)
-          # WiX/MSI rejects non-numeric prerelease ids (e.g. "alpha.9" → bundle error).
-          if echo "$VERSION" | grep -Eqi '-(alpha|beta|rc|dev|pre)'; then
-            echo "Prerelease $VERSION — building NSIS only (MSI requires numeric prerelease)"
-            cargo tauri build --bundles nsis
-          else
-            cargo tauri build
-          fi
+          VERSION=$(jq -r .version src-tauri/tauri.conf.json | tr -d '\r')
+          echo "app version=$VERSION"
+          # WiX/MSI rejects non-numeric prerelease ids (e.g. alpha.N). Force NSIS via config
+          # (more reliable than --bundles on Windows runners).
+          case "$VERSION" in
+            *-alpha*|*-beta*|*-rc*|*-dev*|*-pre*)
+              echo "Prerelease — pinning bundle.targets to nsis only"
+              jq '.bundle.targets = ["nsis"]' src-tauri/tauri.conf.json > /tmp/tauri.conf.json
+              mv /tmp/tauri.conf.json src-tauri/tauri.conf.json
+              cargo tauri build --bundles nsis
+              ;;
+            *)
+              cargo tauri build
+              ;;
+          esac
 
       # Optional Authenticode signing — requires GitHub secrets WINDOWS_CERT_PFX + WINDOWS_CERT_PASSWORD
       # See docs/CODE_SIGNING.md. Skipped when secrets are absent (unsigned early-access builds).
@@ -273,21 +280,32 @@ jobs:
 
       - name: Build macOS package
         env:
-          # Never export empty APPLE_SIGNING_IDENTITY — Tauri treats "" as a real identity and codesign fails.
-          APPLE_SIGNING_IDENTITY_SECRET: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.APPLE_SIGNING_IDENTITY || '' }}
-          APPLE_ID: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.APPLE_ID || '' }}
-          APPLE_PASSWORD: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.APPLE_ID_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.APPLE_TEAM_ID || '' }}
+          # Never export empty APPLE_SIGNING_IDENTITY / Apple notary vars — empty strings still
+          # make Tauri attempt codesign/notarize and fail ("Team ID must be at least 3 characters").
+          APPLE_SIGNING_IDENTITY_SECRET: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID_SECRET: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD_SECRET: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID_SECRET: ${{ secrets.APPLE_TEAM_ID }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         run: |
           set -euo pipefail
+          # Drop any empty Apple env so Tauri does not enter notarize/codesign paths.
+          unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_SIGNING_IDENTITY || true
           if [ "${HAS_APPLE_CERTIFICATE}" = "true" ] && [ -n "${APPLE_SIGNING_IDENTITY_SECRET:-}" ]; then
             export APPLE_SIGNING_IDENTITY="$APPLE_SIGNING_IDENTITY_SECRET"
             echo "Using Developer ID signing identity"
           else
             export APPLE_SIGNING_IDENTITY="-"
             echo "No Apple cert — ad-hoc signing (identity '-')"
+          fi
+          if [ "${HAS_APPLE_NOTARY}" = "true" ] && [ -n "${APPLE_ID_SECRET:-}" ] && [ -n "${APPLE_TEAM_ID_SECRET:-}" ]; then
+            export APPLE_ID="$APPLE_ID_SECRET"
+            export APPLE_PASSWORD="$APPLE_PASSWORD_SECRET"
+            export APPLE_TEAM_ID="$APPLE_TEAM_ID_SECRET"
+            echo "Apple notary credentials present"
+          else
+            echo "Skipping notarization (no Apple notary secrets)"
           fi
           cargo tauri build
 
