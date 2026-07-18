@@ -492,6 +492,40 @@ body.browsing #content-area {
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
+/* Chrome edit context menu (address bar / settings fields) */
+#chrome-ctx-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 160px;
+  padding: 4px 0;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+#chrome-ctx-menu[hidden] { display: none !important; }
+#chrome-ctx-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 14px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+#chrome-ctx-menu button:hover {
+  background: var(--bg-hover);
+}
+#chrome-ctx-menu hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 4px 0;
+}
+
 body.compact {
   --tab-height: 30px;
   --nav-height: 34px;

@@ -590,6 +590,11 @@ document.getElementById('compact-mode')?.addEventListener('change', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
+  // Never intercept clipboard shortcuts — let the focused input / WebView2 handle them.
+  const key = e.key.toLowerCase();
+  if (e.ctrlKey && (key === 'c' || key === 'v' || key === 'x' || key === 'a')) {
+    return;
+  }
   if (e.ctrlKey && e.key === 't') {
     e.preventDefault();
     createTab();
@@ -601,6 +606,7 @@ document.addEventListener('keydown', (e) => {
   if (e.ctrlKey && e.key === 'l') {
     e.preventDefault();
     urlBar.focus();
+    urlBar.select();
   }
   if (e.ctrlKey && e.key === ',') {
     e.preventDefault();
@@ -620,6 +626,130 @@ document.addEventListener('keydown', (e) => {
     switchTab(tabs[nextIdx].id);
   }
 });
+
+// ── Chrome context menu (Cut / Copy / Paste / Select All) ──
+
+function isEditableTarget(el) {
+  if (!el || el.nodeType !== 1) return null;
+  if (el.matches?.('input:not([type=checkbox]):not([type=range]):not([type=button]):not([type=submit]), textarea')) {
+    return el;
+  }
+  if (el.isContentEditable) return el;
+  return el.closest?.('input, textarea, [contenteditable="true"]') || null;
+}
+
+function wireChromeContextMenu() {
+  let menu = document.getElementById('chrome-ctx-menu');
+  if (!menu) {
+    menu = document.createElement('div');
+    menu.id = 'chrome-ctx-menu';
+    menu.hidden = true;
+    menu.innerHTML = `
+      <button type="button" data-cmd="cut">Cut</button>
+      <button type="button" data-cmd="copy">Copy</button>
+      <button type="button" data-cmd="paste">Paste</button>
+      <button type="button" data-cmd="selectAll">Select All</button>
+      <hr>
+      <button type="button" data-cmd="reload">Reload</button>
+    `;
+    document.body.appendChild(menu);
+  }
+
+  let targetEl = null;
+
+  const hide = () => {
+    menu.hidden = true;
+    targetEl = null;
+  };
+
+  const showAt = (x, y, el) => {
+    targetEl = el;
+    menu.hidden = false;
+    const pad = 6;
+    const rect = menu.getBoundingClientRect();
+    const left = Math.min(x, window.innerWidth - rect.width - pad);
+    const top = Math.min(y, window.innerHeight - rect.height - pad);
+    menu.style.left = `${Math.max(pad, left)}px`;
+    menu.style.top = `${Math.max(pad, top)}px`;
+  };
+
+  document.addEventListener('contextmenu', (e) => {
+    const editable = isEditableTarget(e.target);
+    if (!editable) {
+      hide();
+      return; // non-editable chrome: no custom menu
+    }
+    e.preventDefault();
+    showAt(e.clientX, e.clientY, editable);
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!menu.hidden && !menu.contains(e.target)) hide();
+  });
+  window.addEventListener('blur', hide);
+  window.addEventListener('resize', hide);
+
+  menu.addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-cmd]');
+    if (!btn) return;
+    const cmd = btn.dataset.cmd;
+    const el = targetEl;
+    hide();
+
+    if (cmd === 'reload') {
+      reloadBtn.click();
+      return;
+    }
+    if (!el) return;
+    el.focus();
+
+    try {
+      if (cmd === 'cut') {
+        if (typeof el.selectionStart === 'number') {
+          const start = el.selectionStart;
+          const end = el.selectionEnd;
+          const selected = el.value.slice(start, end);
+          if (selected) {
+            await navigator.clipboard.writeText(selected);
+            el.setRangeText('', start, end, 'start');
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        } else {
+          document.execCommand('cut');
+        }
+      } else if (cmd === 'copy') {
+        if (typeof el.selectionStart === 'number') {
+          const selected = el.value.slice(el.selectionStart, el.selectionEnd);
+          if (selected) await navigator.clipboard.writeText(selected);
+        } else {
+          document.execCommand('copy');
+        }
+      } else if (cmd === 'paste') {
+        const text = await navigator.clipboard.readText();
+        if (typeof el.selectionStart === 'number') {
+          const start = el.selectionStart;
+          const end = el.selectionEnd;
+          el.setRangeText(text, start, end, 'end');
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+        } else {
+          document.execCommand('insertText', false, text);
+        }
+      } else if (cmd === 'selectAll') {
+        if (typeof el.select === 'function') el.select();
+        else document.execCommand('selectAll');
+      }
+    } catch (err) {
+      console.warn('[void] context menu action failed', err);
+      // Fallback to legacy execCommand when clipboard API is blocked.
+      try {
+        if (cmd === 'cut') document.execCommand('cut');
+        else if (cmd === 'copy') document.execCommand('copy');
+        else if (cmd === 'paste') document.execCommand('paste');
+        else if (cmd === 'selectAll') document.execCommand('selectAll');
+      } catch (_) { /* ok */ }
+    }
+  });
+}
 
 async function wireBackendEvents() {
   await listen('tab-navigated', (event) => {
@@ -661,6 +791,7 @@ async function wireBackendEvents() {
 
 (async function init() {
   wireWindowControls();
+  wireChromeContextMenu();
   await wireBackendEvents();
 
   try {

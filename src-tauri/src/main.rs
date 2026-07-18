@@ -132,6 +132,9 @@ fn main() {
         })
         .manage(BrowserState::default())
         .setup(|app| {
+            // Plain Window + child chrome webview (not WebviewWindow). Required on
+            // Windows so chrome can shrink without wry's full-client WM_SIZE subclass.
+            browser::create_main_window(app.handle())?;
             browser::attach_resize_handler(app.handle())?;
             if smoke::requested() {
                 smoke::spawn(app.handle().clone());

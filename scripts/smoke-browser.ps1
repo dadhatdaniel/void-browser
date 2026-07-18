@@ -22,6 +22,8 @@ function Find-VoidExe {
   if ($Hint -and (Test-Path -LiteralPath $Hint)) { return (Resolve-Path -LiteralPath $Hint).Path }
 
   $candidates = @(
+    (Join-Path $env:USERPROFILE "void-browser-target\release\void-browser.exe"),
+    (Join-Path $env:USERPROFILE "void-browser-target\debug\void-browser.exe"),
     (Join-Path $Root "src-tauri\target\release\void-browser.exe"),
     (Join-Path $Root "src-tauri\target\debug\void-browser.exe"),
     (Join-Path $Root "src-tauri\target\release\bundle\nsis\*\void-browser.exe")
@@ -50,18 +52,18 @@ Write-Host "Smoke: launching $exe --smoke-test (timeout ${TimeoutSec}s)"
 Write-Host "Smoke log: $log"
 
 $proc = Start-Process -FilePath $exe -ArgumentList @("--smoke-test") -PassThru -WindowStyle Normal
-$sw = [Diagnostics.Stopwatch]::StartNew()
-while (-not $proc.HasExited -and $sw.Elapsed.TotalSeconds -lt $TimeoutSec) {
-  Start-Sleep -Milliseconds 400
-}
-
-if (-not $proc.HasExited) {
+try {
+  Wait-Process -Id $proc.Id -Timeout $TimeoutSec -ErrorAction Stop
+} catch {
   Write-Host "Smoke: timeout — killing process"
   try { Stop-Process -Id $proc.Id -Force } catch { }
   if (Test-Path $log) { Get-Content $log | Write-Host }
   exit 1
 }
 
+# GUI subsystem exes need a refresh before ExitCode is reliable.
+Start-Sleep -Milliseconds 200
+$proc.Refresh()
 $code = $proc.ExitCode
 Write-Host "Smoke: exit code $code"
 if (Test-Path $log) {

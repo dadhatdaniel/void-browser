@@ -2,6 +2,16 @@
 
 Build and test the **Windows WebView2 GUI on this PC**. Do not use Unraid Docker for Windows QA.
 
+## Critical: run the NEW exe
+
+After a local release build, launch:
+
+```text
+%USERPROFILE%\void-browser-target\release\void-browser.exe
+```
+
+Do **not** use an older installed alpha (NSIS/MSI under Program Files) or a stale copy — alpha.11–13 blank/white content bugs are fixed in alpha.14+ by creating chrome as a child webview (not a full-window `WebviewWindow` surface).
+
 ## Why Unraid Docker cannot replace Windows testing
 
 | Environment | What it is | What you can test |

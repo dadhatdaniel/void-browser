@@ -1,18 +1,22 @@
 // Void Browser — Content webview management (Tauri 2 multi-webview)
 //
-// Architecture (Windows-critical):
-// The default WebviewWindow creates a full-window "main" webview for chrome UI.
-// Child content webviews added with add_child can end up *under* that opaque
-// surface on WebView2, which looks like a solid black (or, after a partial
-// shrink, solid white Win32 client) content area while the URL bar still
-// updates (navigation works, pixels never appear).
+// Root cause (Windows WebView2 + Tauri 2):
+// A config-created WebviewWindow builds the chrome UI as WebviewKind::WindowContent
+// (wry `is_child = false`). That path attaches a parent WM_SIZE subclass that
+// ALWAYS stretches the chrome HWND back to the full client area. Shrinking the
+// shell then either:
+//   - gets undone on the next resize → opaque chrome covers the page (black), or
+//   - reveals the Win32 client while the page child never paints on top (white),
+// while URL/title events still fire (navigation works, pixels do not).
 //
-// Fix while browsing:
-// 1) Shrink the shell ("main") webview to the chrome strip only.
-// 2) Place content webviews in the remaining bounds (atomic set_bounds).
-// 3) Force WebView2 controller visibility + a short deferred reflow (Windows
-//    applies SetWindowPos asynchronously via SWP_ASYNCWINDOWPOS).
-// Expand the shell again for internal pages (newtab / settings).
+// Additionally, wry `set_bounds` on Windows uses SWP_ASYNCWINDOWPOS and has been
+// observed to break the webview dispatcher ("failed to receive message"), so we
+// only use set_position + set_size.
+//
+// Fix:
+// 1) Create a plain Window and attach chrome as a child webview (same as content).
+// 2) While browsing, size chrome to the strip and content to the area below.
+// 3) On Windows, force the content controller visible and HWND_TOP after layout.
 
 use crate::gpu;
 use crate::AppState;
@@ -21,9 +25,9 @@ use std::collections::HashSet;
 use std::sync::Mutex;
 use std::time::Duration;
 use tauri::webview::{PageLoadEvent, WebviewBuilder};
+use tauri::window::WindowBuilder;
 use tauri::{
-    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Rect, State, WebviewUrl,
-    WindowEvent,
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, WebviewUrl, WindowEvent,
 };
 use url::Url;
 
@@ -114,36 +118,95 @@ fn content_bounds(
     Ok(content_bounds_for(width, height, chrome_height))
 }
 
+/// Position/size a webview. Never use set_bounds on Windows — it can kill the
+/// dispatcher ("failed to receive message from webview").
 fn apply_webview_bounds(
     webview: &tauri::Webview,
     pos: LogicalPosition<f64>,
     size: LogicalSize<f64>,
 ) -> Result<(), String> {
     let _ = webview.set_auto_resize(false);
-    // Prefer atomic set_bounds; fall back to position+size if the runtime rejects it.
-    if webview
-        .set_bounds(Rect {
-            position: pos.into(),
-            size: size.into(),
-        })
-        .is_err()
-    {
-        webview
-            .set_position(pos)
-            .map_err(|e| e.to_string())?;
-        webview.set_size(size).map_err(|e| e.to_string())?;
-    }
+    webview
+        .set_position(pos)
+        .map_err(|e| e.to_string())?;
+    webview.set_size(size).map_err(|e| e.to_string())?;
     let _ = webview.show();
     Ok(())
 }
 
-/// Ensure the child webview HWND is shown and focused after layout.
-fn force_webview_visible(webview: &tauri::Webview) {
-    let _ = webview.show();
-    let _ = webview.set_focus();
+fn webview_dispatcher_ok(webview: &tauri::Webview) -> bool {
+    webview.size().is_ok() || webview.bounds().is_ok() || webview.url().is_ok()
 }
 
-/// Resize the chrome ("main") webview: strip-only while browsing, full window otherwise.
+/// Ensure WebView2 default context menus + accelerator keys stay enabled.
+fn ensure_editing_features(webview: &tauri::Webview) {
+    #[cfg(windows)]
+    {
+        let _ = webview.with_webview(|platform| {
+            use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
+            use windows::core::Interface;
+
+            let controller = platform.controller();
+            unsafe {
+                if let Ok(core) = controller.CoreWebView2() {
+                    if let Ok(settings) = core.Settings() {
+                        let _ = settings.SetAreDefaultContextMenusEnabled(true);
+                        if let Ok(settings3) = settings.cast::<ICoreWebView2Settings3>() {
+                            let _ = settings3.SetAreBrowserAcceleratorKeysEnabled(true);
+                        }
+                    }
+                }
+            }
+        });
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = webview;
+    }
+}
+
+/// Show + z-order the child HWND. `focus` only when the user is actively browsing
+/// that pane — reflow must not steal focus from the address bar.
+fn raise_webview_hwnd(webview: &tauri::Webview, focus: bool) {
+    ensure_editing_features(webview);
+    let _ = webview.show();
+    if focus {
+        let _ = webview.set_focus();
+    }
+
+    #[cfg(windows)]
+    {
+        let focus = focus;
+        let _ = webview.with_webview(move |platform| {
+            use windows::Win32::Foundation::HWND;
+            use windows::Win32::UI::WindowsAndMessaging::{
+                SetWindowPos, ShowWindow, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+                SWP_SHOWWINDOW, SW_SHOW,
+            };
+
+            let controller = platform.controller();
+            unsafe {
+                let _ = controller.SetIsVisible(true);
+                let mut hwnd = HWND::default();
+                if controller.ParentWindow(&mut hwnd).is_ok() && !hwnd.is_invalid() {
+                    let _ = ShowWindow(hwnd, SW_SHOW);
+                    let flags = if focus {
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW
+                    } else {
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE
+                    };
+                    let _ = SetWindowPos(hwnd, Some(HWND_TOP), 0, 0, 0, 0, flags);
+                }
+            }
+        });
+    }
+}
+
+fn force_webview_visible(webview: &tauri::Webview) {
+    raise_webview_hwnd(webview, true);
+}
+
+/// Resize the chrome child webview: strip-only while browsing, full window otherwise.
 fn layout_shell(app: &AppHandle, chrome_height: f64, browsing: bool) -> Result<(), String> {
     let Some(window) = app.get_window(MAIN_WINDOW) else {
         return Ok(());
@@ -153,21 +216,15 @@ fn layout_shell(app: &AppHandle, chrome_height: f64, browsing: bool) -> Result<(
         return Ok(());
     };
 
-    // Manual layout — do not let the shell auto-fill the window over content.
-    // Use set_position/set_size (not set_bounds) on the WebviewWindow primary
-    // webview — set_bounds has been observed to break its dispatcher on Windows.
     let _ = shell.set_auto_resize(false);
-    let _ = shell.set_position(LogicalPosition::new(0.0, 0.0));
-    if browsing {
+    let pos = LogicalPosition::new(0.0, 0.0);
+    let size = if browsing {
         let h = clamp_chrome_height(chrome_height).clamp(1.0, height.max(1.0));
-        shell
-            .set_size(LogicalSize::new(width.max(1.0), h))
-            .map_err(|e| e.to_string())?;
+        LogicalSize::new(width.max(1.0), h)
     } else {
-        shell
-            .set_size(LogicalSize::new(width.max(1.0), height.max(1.0)))
-            .map_err(|e| e.to_string())?;
-    }
+        LogicalSize::new(width.max(1.0), height.max(1.0))
+    };
+    apply_webview_bounds(&shell, pos, size)?;
     Ok(())
 }
 
@@ -186,7 +243,8 @@ fn reflow_content_webviews(app: &AppHandle, chrome_height: f64) -> Result<(), St
         let label = content_label(&tab_id);
         if let Some(webview) = app.get_webview(&label) {
             apply_webview_bounds(&webview, pos, size)?;
-            force_webview_visible(&webview);
+            // Reflow must not steal focus (breaks address-bar Ctrl+V / typing).
+            raise_webview_hwnd(&webview, false);
         }
     }
     Ok(())
@@ -197,11 +255,16 @@ fn reflow_all(app: &AppHandle) -> Result<(), String> {
     let chrome_height =
         clamp_chrome_height(*browser.chrome_height.lock().map_err(|e| e.to_string())?);
     let browsing = *browser.shell_browsing.lock().map_err(|e| e.to_string())?;
-    // Content first, then shell strip last so chrome stays above the page region.
+    // Content first (under), then chrome strip last so the toolbar stays on top
+    // of any accidental overlap at the strip boundary.
     if browsing {
         reflow_content_webviews(app, chrome_height)?;
     }
     layout_shell(app, chrome_height, browsing)?;
+    if browsing {
+        // Bring the active content pane above any sibling after chrome layout.
+        reflow_content_webviews(app, chrome_height)?;
+    }
     Ok(())
 }
 
@@ -229,11 +292,46 @@ fn set_shell_browsing(app: &AppHandle, browsing: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// Create the host window + chrome as a *child* webview (not WebviewWindow).
+/// Must run from setup before any navigation.
+pub fn create_main_window(app: &AppHandle) -> Result<(), String> {
+    let window = WindowBuilder::new(app, MAIN_WINDOW)
+        .title("Void")
+        .inner_size(1280.0, 900.0)
+        .min_inner_size(640.0, 480.0)
+        .resizable(true)
+        .decorations(false)
+        .transparent(false)
+        .shadow(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let (width, height) = window_logical_size(&window)?;
+    // Clipboard + native edit menu for address bar / settings fields.
+    let mut builder = WebviewBuilder::new(MAIN_WEBVIEW, WebviewUrl::App("index.html".into()))
+        .enable_clipboard_access();
+
+    let args = gpu::webview2_browser_args();
+    if !args.is_empty() {
+        builder = builder.additional_browser_args(&args);
+    }
+
+    let chrome = window
+        .add_child(
+            builder,
+            LogicalPosition::new(0.0, 0.0),
+            LogicalSize::new(width.max(1.0), height.max(1.0)),
+        )
+        .map_err(|e| e.to_string())?;
+    let _ = chrome.set_auto_resize(false);
+    ensure_editing_features(&chrome);
+    Ok(())
+}
+
 pub fn attach_resize_handler(app: &AppHandle) -> Result<(), String> {
     let Some(window) = app.get_window(MAIN_WINDOW) else {
         return Ok(());
     };
-    // Main webview starts full-window for newtab; never auto-stretch over children.
     if let Some(shell) = app.get_webview(MAIN_WEBVIEW) {
         let _ = shell.set_auto_resize(false);
     }
@@ -318,67 +416,30 @@ pub async fn hide_browser_content(
     Ok(())
 }
 
-#[tauri::command]
-pub async fn navigate_browser(
-    tab_id: String,
-    url: String,
-    app: AppHandle,
-    browser: State<'_, BrowserState>,
-    state: State<'_, AppState>,
+fn attach_content_webview(
+    app: &AppHandle,
+    browser: &BrowserState,
+    tab_id: &str,
+    url: &str,
+    parsed: Url,
 ) -> Result<(), String> {
-    let parsed = Url::parse(&url).map_err(|e| format!("invalid url: {e}"))?;
-
-    {
-        let engine = state.blocker.lock().map_err(|e| e.to_string())?;
-        let _ = engine.check(&url, &url); // count toward stats
-        if should_block_main_frame(&url) {
-            let _ = app.emit("block-stats-updated", engine.stats());
-            return Err("Blocked tracker/telemetry destination".into());
-        }
-        let _ = app.emit("block-stats-updated", engine.stats());
-    }
-
-    {
-        let mut mgr = state.tabs.lock().map_err(|e| e.to_string())?;
-        mgr.set_url(&tab_id, &url);
-        mgr.set_loading(&tab_id, true);
-    }
-
-    let label = content_label(&tab_id);
     let chrome_height = *browser.chrome_height.lock().map_err(|e| e.to_string())?;
-
-    if let Some(webview) = app.get_webview(&label) {
-        hide_all_content(&app, &browser)?;
-        set_shell_browsing(&app, true)?;
-        webview.navigate(parsed).map_err(|e| e.to_string())?;
-        force_webview_visible(&webview);
-        reflow_all(&app)?;
-        schedule_deferred_reflow(&app);
-        let _ = app.emit(
-            "tab-navigated",
-            TabNavEvent {
-                tab_id,
-                url,
-                title: None,
-            },
-        );
-        return Ok(());
-    }
-
     let window = app
         .get_window(MAIN_WINDOW)
         .ok_or_else(|| "main window not found".to_string())?;
     let (pos, size) = content_bounds(&window, chrome_height)?;
 
-    let tab_id_for_nav = tab_id.clone();
-    let tab_id_for_title = tab_id.clone();
-    let tab_id_for_load = tab_id.clone();
+    let tab_id_for_nav = tab_id.to_string();
+    let tab_id_for_title = tab_id.to_string();
+    let tab_id_for_load = tab_id.to_string();
     let app_for_nav = app.clone();
     let app_for_title = app.clone();
     let app_for_load = app.clone();
+    let label = content_label(tab_id);
 
-    // No auto_resize: we own bounds so the content pane cannot expand over chrome.
+    // Clipboard permission + (via ensure_editing_features) WebView2 Cut/Copy/Paste menu.
     let mut builder = WebviewBuilder::new(&label, WebviewUrl::External(parsed))
+        .enable_clipboard_access()
         .on_navigation(move |nav_url| {
             let url_str = nav_url.to_string();
             if url_str == "about:blank" {
@@ -457,9 +518,8 @@ pub async fn navigate_browser(
         builder = builder.additional_browser_args(&args);
     }
 
-    hide_all_content(&app, &browser)?;
-    // Shrink chrome shell *before* attaching so the child is not covered at creation.
-    set_shell_browsing(&app, true)?;
+    hide_all_content(app, browser)?;
+    set_shell_browsing(app, true)?;
 
     let webview = window
         .add_child(builder, pos, size)
@@ -471,21 +531,79 @@ pub async fn navigate_browser(
         .content_tabs
         .lock()
         .map_err(|e| e.to_string())?
-        .insert(tab_id.clone());
+        .insert(tab_id.to_string());
 
-    reflow_all(&app)?;
-    schedule_deferred_reflow(&app);
+    reflow_all(app)?;
+    schedule_deferred_reflow(app);
 
     let _ = app.emit(
         "tab-navigated",
         TabNavEvent {
-            tab_id,
-            url,
+            tab_id: tab_id.to_string(),
+            url: url.to_string(),
             title: None,
         },
     );
-
     Ok(())
+}
+
+#[tauri::command]
+pub async fn navigate_browser(
+    tab_id: String,
+    url: String,
+    app: AppHandle,
+    browser: State<'_, BrowserState>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let parsed = Url::parse(&url).map_err(|e| format!("invalid url: {e}"))?;
+
+    {
+        let engine = state.blocker.lock().map_err(|e| e.to_string())?;
+        let _ = engine.check(&url, &url); // count toward stats
+        if should_block_main_frame(&url) {
+            let _ = app.emit("block-stats-updated", engine.stats());
+            return Err("Blocked tracker/telemetry destination".into());
+        }
+        let _ = app.emit("block-stats-updated", engine.stats());
+    }
+
+    {
+        let mut mgr = state.tabs.lock().map_err(|e| e.to_string())?;
+        mgr.set_url(&tab_id, &url);
+        mgr.set_loading(&tab_id, true);
+    }
+
+    let label = content_label(&tab_id);
+
+    if let Some(webview) = app.get_webview(&label) {
+        // Stale / broken dispatcher after a bad set_bounds — recreate the child.
+        if !webview_dispatcher_ok(&webview) {
+            let _ = webview.close();
+            browser
+                .content_tabs
+                .lock()
+                .map_err(|e| e.to_string())?
+                .remove(&tab_id);
+        } else {
+            hide_all_content(&app, &browser)?;
+            set_shell_browsing(&app, true)?;
+            webview.navigate(parsed).map_err(|e| e.to_string())?;
+            force_webview_visible(&webview);
+            reflow_all(&app)?;
+            schedule_deferred_reflow(&app);
+            let _ = app.emit(
+                "tab-navigated",
+                TabNavEvent {
+                    tab_id,
+                    url,
+                    title: None,
+                },
+            );
+            return Ok(());
+        }
+    }
+
+    attach_content_webview(&app, &browser, &tab_id, &url, parsed)
 }
 
 #[tauri::command]
@@ -554,17 +672,24 @@ pub fn get_webview_info(
     let chrome_height = *browser.chrome_height.lock().map_err(|e| e.to_string())?;
     let shell_browsing = *browser.shell_browsing.lock().map_err(|e| e.to_string())?;
 
+    let scale = app
+        .get_window(MAIN_WINDOW)
+        .and_then(|w| w.scale_factor().ok())
+        .unwrap_or(1.0);
+
     let (shell_width, shell_height) = if let Some(shell) = app.get_webview(MAIN_WEBVIEW) {
-        let scale = app
-            .get_window(MAIN_WINDOW)
-            .and_then(|w| w.scale_factor().ok())
-            .unwrap_or(1.0);
         match shell.size() {
             Ok(size) => (
                 f64::from(size.width) / scale,
                 f64::from(size.height) / scale,
             ),
-            Err(_) => (0.0, 0.0),
+            Err(_) => match shell.bounds() {
+                Ok(bounds) => {
+                    let size = bounds.size.to_logical::<f64>(scale);
+                    (size.width, size.height)
+                }
+                Err(_) => (0.0, 0.0),
+            },
         }
     } else {
         (0.0, 0.0)
@@ -598,31 +723,33 @@ pub fn get_webview_info(
         });
     };
 
-    let scale = app
-        .get_window(MAIN_WINDOW)
-        .and_then(|w| w.scale_factor().ok())
-        .unwrap_or(1.0);
-    // Prefer bounds() (one IPC) — separate size/position can fail mid-reflow on WebView2.
-    let (width, height, x, y) = match webview.bounds() {
-        Ok(bounds) => {
-            let size = bounds.size.to_logical::<f64>(scale);
-            let pos = bounds.position.to_logical::<f64>(scale);
-            (size.width, size.height, pos.x, pos.y)
-        }
-        Err(_) => {
-            let size = webview.size().map_err(|e| e.to_string())?;
-            let pos = webview.position().map_err(|e| e.to_string())?;
+    let (width, height, x, y) = match webview.size().and_then(|size| {
+        webview.position().map(|pos| {
             (
                 f64::from(size.width) / scale,
                 f64::from(size.height) / scale,
                 f64::from(pos.x) / scale,
                 f64::from(pos.y) / scale,
             )
-        }
+        })
+    }) {
+        Ok(v) => v,
+        Err(_) => match webview.bounds() {
+            Ok(bounds) => {
+                let size = bounds.size.to_logical::<f64>(scale);
+                let pos = bounds.position.to_logical::<f64>(scale);
+                (size.width, size.height, pos.x, pos.y)
+            }
+            Err(e) => {
+                // Still surface URL if possible — helps diagnose white screens.
+                let url = webview.url().map(|u| u.to_string()).unwrap_or_default();
+                return Err(format!(
+                    "content bounds unavailable (url={url}): {e}"
+                ));
+            }
+        },
     };
     let url = webview.url().map(|u| u.to_string()).unwrap_or_default();
-
-    // Webview2 has no reliable is_visible on Webview; treat "tracked + non-zero" as visible.
     let visible = width >= 1.0 && height >= 1.0 && shell_browsing;
 
     Ok(WebviewInfo {

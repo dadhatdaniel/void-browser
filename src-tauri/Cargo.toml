@@ -1,6 +1,6 @@
 [package]
 name = "void-browser"
-version = "0.1.0-alpha.13"
+version = "0.1.0-alpha.14"
 description = "Void — A minimal, secure, privacy-first browser"
 authors = ["Daniel Lightfoot"]
 license = "GPL-3.0"
@@ -28,6 +28,14 @@ tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["v4"] }
 # Pin: rmp 0.8.15 removed decode helpers that rmp-serde 0.15.x (via adblock) still needs
 rmp = "=0.8.14"
+
+[target.'cfg(windows)'.dependencies]
+# Force content WebView2 HWND visibility / z-order + editing settings.
+webview2-com = "0.38"
+windows = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+] }
 
 [features]
 default = ["custom-protocol"]
