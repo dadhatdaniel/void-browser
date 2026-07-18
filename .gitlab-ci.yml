@@ -238,10 +238,12 @@ site-e2e:
 # often does NOT create a GitHub tag PushEvent, so on.push.tags never fires.
 # This job POSTs workflow_dispatch after the tag exists on GitHub.
 #
-# GitLab CI/CD variable (Settings → CI/CD → Variables), masked + protected:
-#   Name:  GITHUB_TOKEN  (or GH_WORKFLOW_TOKEN)
-#   Value: classic PAT owned by dadhatdaniel with scopes: repo + workflow
-#   Fine-grained alternative: Actions = Read and write (Contents Read OK for tag ref)
+# GitLab CI/CD variables (Settings → CI/CD → Variables), masked=true, protected=false:
+#   Prefer: GH_WORKFLOW_TOKEN  (classic PAT, scopes: repo + workflow)
+#   Fallback: GITHUB_TOKEN     (same classic PAT)
+#   Do NOT use fine-grained tokens (github_pat_*) — workflow_dispatch returns 403
+#   without Actions: Read and write. Keep protected=false so unprotected tags
+#   like v0.1.0-alpha.N receive the variable.
 #
 # Manual fallback (no PAT): https://github.com/dadhatdaniel/void-browser/actions/workflows/build.yml
 #   → Run workflow → choose the tag.
@@ -257,14 +259,30 @@ trigger-github-build:
   script:
     - |
       set -eu
+      # Prefer dedicated workflow token; fall back to GITHUB_TOKEN
       TOKEN="${GH_WORKFLOW_TOKEN:-${GITHUB_TOKEN:-}}"
       if [ -z "$TOKEN" ]; then
-        echo "BLOCKER: set GitLab CI variable GITHUB_TOKEN (or GH_WORKFLOW_TOKEN)"
-        echo "  classic PAT: repo + workflow (user dadhatdaniel)"
+        echo "BLOCKER: set GitLab CI variable GH_WORKFLOW_TOKEN (preferred) or GITHUB_TOKEN"
+        echo "  classic PAT (ghp_*): repo + workflow (user dadhatdaniel)"
+        echo "  masked=true, protected=false (so unprotected tags get it)"
         echo "  then re-run this job, or manually:"
         echo "  https://github.com/dadhatdaniel/void-browser/actions/workflows/build.yml"
         exit 1
       fi
+      case "$TOKEN" in
+        github_pat_*)
+          echo "BLOCKER: token starts with github_pat_ (fine-grained)."
+          echo "  Replace GH_WORKFLOW_TOKEN and GITHUB_TOKEN with a classic PAT (ghp_*)"
+          echo "  scopes: repo + workflow. Fine-grained without Actions:write → HTTP 403."
+          echo "  Manual: https://github.com/dadhatdaniel/void-browser/actions/workflows/build.yml → Run workflow → $CI_COMMIT_TAG"
+          exit 1
+          ;;
+      esac
+      kind=other
+      case "$TOKEN" in
+        ghp_*) kind=classic_ghp ;;
+      esac
+      echo "Using GitHub token kind=$kind (value not printed)"
       echo "Waiting for GitHub mirror to have tag $CI_COMMIT_TAG ..."
       tag_ok=0
       for i in 1 2 3 4 5 6 7 8 9 10; do
@@ -300,8 +318,9 @@ trigger-github-build:
         exit 0
       fi
       if [ "$code" = "403" ] || [ "$code" = "401" ]; then
-        echo "BLOCKER: token needs classic repo+workflow (fine-grained Actions: Read and write)."
-        echo "Prior fine-grained PATs without Actions:write get 403 — do not spam retries."
+        echo "BLOCKER: token rejected (HTTP $code). Need classic ghp_* with repo+workflow."
+        echo "  Fine-grained github_pat_* without Actions:write get 403 — do not spam retries."
+        echo "  Confirm GitLab vars GH_WORKFLOW_TOKEN/GITHUB_TOKEN are classic, protected=false."
         echo "Manual: https://github.com/dadhatdaniel/void-browser/actions/workflows/build.yml → Run workflow → $CI_COMMIT_TAG"
         exit 1
       fi
