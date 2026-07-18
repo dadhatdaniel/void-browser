@@ -9,11 +9,17 @@ Requires env:
   VIRUSTOTAL_API_KEY  — VirusTotal API v3 key (GitLab CI/CD variable, masked)
 
 Optional env:
-  VT_RELEASE_TAG      — GitHub release tag (default: latest non-draft)
+  VT_RELEASE_TAG / RELEASE_TAG — preferred GitHub release tag (tried first)
   VT_GITHUB_REPO      — owner/repo (default: dadhatdaniel/void-browser)
   VT_WEBSITE_URL      — site to URL-scan (default: https://void.lightfoot.cloud)
   VT_OUT              — output JSON path (default: website/scan-results.json)
   GITHUB_TOKEN        — optional; raises GitHub API rate limits for asset download
+
+Release resolution (packages are best-effort):
+  1. VT_RELEASE_TAG / RELEASE_TAG if that GitHub Release has package assets
+  2. Newest non-draft GitHub Release that has .deb/.AppImage/.msi/.exe/.dmg
+  3. Tag from website/releases.json, then v0.1.0-alpha.3
+  Website URL scan always runs even when no package release exists.
 
 Usage:
   python3 scripts/virustotal-scan.py
@@ -47,6 +53,9 @@ LIMITATIONS = [
     "Windows builds are unsigned — SmartScreen / Defender may warn on first run.",
     "VirusTotal aggregates many engines; a single unknown/heuristic hit is common for new unsigned software and is not proof of malware.",
 ]
+
+WANTED_EXT = (".deb", ".AppImage", ".msi", ".exe", ".dmg")
+FALLBACK_RELEASE_TAG = "v0.1.0-alpha.3"
 
 
 def http_json(
@@ -95,15 +104,108 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def github_release(repo: str, tag: str | None, token: str | None) -> dict[str, Any]:
+def _gh_headers(token: str | None) -> dict[str, str]:
     headers = {"Accept": "application/vnd.github+json", "User-Agent": "void-browser-vt-scan"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    if tag:
-        url = f"{GH_API}/repos/{repo}/releases/tags/{tag}"
-    else:
-        url = f"{GH_API}/repos/{repo}/releases/latest"
-    return http_json(url, headers=headers)
+    return headers
+
+
+def github_release(repo: str, tag: str, token: str | None) -> dict[str, Any]:
+    url = f"{GH_API}/repos/{repo}/releases/tags/{urllib.parse.quote(tag)}"
+    return http_json(url, headers=_gh_headers(token))
+
+
+def github_list_releases(repo: str, token: str | None, *, per_page: int = 30) -> list[dict[str, Any]]:
+    url = f"{GH_API}/repos/{repo}/releases?per_page={per_page}"
+    data = http_json(url, headers=_gh_headers(token))
+    return data if isinstance(data, list) else []
+
+
+def package_assets(release: dict[str, Any]) -> list[dict[str, Any]]:
+    assets = release.get("assets") or []
+    return [
+        a
+        for a in assets
+        if (a.get("name") or "").endswith(WANTED_EXT) and a.get("browser_download_url")
+    ]
+
+
+def tag_from_releases_json() -> str | None:
+    path = ROOT / "website" / "releases.json"
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    tag = data.get("tag")
+    return tag if isinstance(tag, str) and tag else None
+
+
+def resolve_release(
+    repo: str,
+    preferred_tag: str | None,
+    token: str | None,
+) -> tuple[dict[str, Any] | None, str]:
+    """Return (release, note). release is None when no scannable package assets exist."""
+    tried: list[str] = []
+
+    def try_tag(tag: str, why: str) -> dict[str, Any] | None:
+        if not tag or tag in tried:
+            return None
+        tried.append(tag)
+        try:
+            rel = github_release(repo, tag, token)
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                print(f"No GitHub release for tag {tag} (404) — {why}")
+                return None
+            raise
+        assets = package_assets(rel)
+        if not assets:
+            print(f"GitHub release {tag} has no package assets — {why}")
+            return None
+        print(f"Using GitHub release {tag} ({len(assets)} package asset(s)) — {why}")
+        return rel
+
+    if preferred_tag:
+        rel = try_tag(preferred_tag, "preferred VT_RELEASE_TAG/RELEASE_TAG")
+        if rel is not None:
+            return rel, f"preferred tag {preferred_tag}"
+
+    print("Listing GitHub releases for one with package assets...")
+    try:
+        for rel in github_list_releases(repo, token):
+            if rel.get("draft"):
+                continue
+            tag = rel.get("tag_name") or ""
+            if not tag or tag in tried:
+                continue
+            assets = package_assets(rel)
+            if assets:
+                print(f"Using GitHub release {tag} ({len(assets)} package asset(s)) — newest with assets")
+                return rel, f"newest published release with assets ({tag})"
+            tried.append(tag)
+    except Exception as e:
+        print(f"Failed to list GitHub releases: {e}", file=sys.stderr)
+
+    for tag, why in (
+        (tag_from_releases_json(), "website/releases.json"),
+        (FALLBACK_RELEASE_TAG, "built-in fallback"),
+    ):
+        if not tag:
+            continue
+        rel = try_tag(tag, why)
+        if rel is not None:
+            return rel, why
+
+    note = (
+        "No GitHub Release with scannable package assets "
+        f"(tried: {', '.join(tried) or 'none'}). Website scan only."
+    )
+    print(note)
+    return None, note
 
 
 def download(url: str, dest: Path, token: str | None = None) -> None:
@@ -215,7 +317,13 @@ def main() -> int:
     args = parser.parse_args()
 
     repo = os.environ.get("VT_GITHUB_REPO", "dadhatdaniel/void-browser")
-    tag = os.environ.get("VT_RELEASE_TAG") or None
+    preferred_tag = (
+        os.environ.get("VT_RELEASE_TAG")
+        or os.environ.get("RELEASE_TAG")
+        or None
+    )
+    if preferred_tag is not None:
+        preferred_tag = preferred_tag.strip() or None
     website_url = os.environ.get("VT_WEBSITE_URL", "https://void.lightfoot.cloud")
     gh_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     api_key = os.environ.get("VIRUSTOTAL_API_KEY")
@@ -227,24 +335,13 @@ def main() -> int:
             if args.dry_run
             else "Automated scans are not configured yet. Add VIRUSTOTAL_API_KEY as a GitLab CI/CD variable, then re-run the virus-scan job (or publish a release tag)."
         )
-        payload = pending_payload(tag or "v0.1.0-alpha.3", msg)
+        payload = pending_payload(preferred_tag or FALLBACK_RELEASE_TAG, msg)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         print(f"Wrote pending scan results to {out_path}")
         return 0
 
-    try:
-        release = github_release(repo, tag, gh_token)
-    except Exception as e:
-        print(f"Failed to fetch GitHub release: {e}", file=sys.stderr)
-        return 1
-
-    tag_name = release.get("tag_name") or tag or "unknown"
-    assets = release.get("assets") or []
-    wanted_ext = (".deb", ".AppImage", ".msi", ".exe", ".dmg")
-    artifacts_out: list[dict[str, Any]] = []
-
-    # Website URL first (fast), then packages smallest→largest (AppImage last)
+    # Website URL first — always runs even when GitHub Release/assets are missing.
     website_block: dict[str, Any] = {
         "url": website_url,
         "status": "error",
@@ -272,68 +369,82 @@ def main() -> int:
         print(f"Website URL scan failed: {e}", file=sys.stderr)
         website_block["error"] = str(e)
 
-    scan_assets = [
-        a
-        for a in assets
-        if (a.get("name") or "").endswith(wanted_ext) and a.get("browser_download_url")
-    ]
-    scan_assets.sort(key=lambda a: int(a.get("size") or 0))
+    artifacts_out: list[dict[str, Any]] = []
+    tag_name = preferred_tag or FALLBACK_RELEASE_TAG
+    release_note = ""
+    try:
+        release, release_note = resolve_release(repo, preferred_tag, gh_token)
+    except Exception as e:
+        print(f"Failed to resolve GitHub release (continuing with website-only): {e}", file=sys.stderr)
+        release = None
+        release_note = str(e)
 
-    with tempfile.TemporaryDirectory(prefix="void-vt-") as tmp:
-        tmpdir = Path(tmp)
-        for asset in scan_assets:
-            name = asset.get("name") or ""
-            url = asset.get("browser_download_url")
-            print(f"Scanning {name} ({asset.get('size', '?')} bytes)...")
-            local = tmpdir / name
-            try:
-                download(url, local, gh_token)
-                digest = sha256_file(local)
-                report = vt_file_report(api_key, digest)
-                if report is None:
-                    print(f"  Not on VT yet — uploading {name} ({local.stat().st_size} bytes)")
-                    analysis_id = vt_upload_file(api_key, local)
-                    vt_wait_analysis(api_key, analysis_id, timeout_s=600)
+    if release is not None:
+        tag_name = release.get("tag_name") or tag_name
+        scan_assets = package_assets(release)
+        scan_assets.sort(key=lambda a: int(a.get("size") or 0))
+
+        with tempfile.TemporaryDirectory(prefix="void-vt-") as tmp:
+            tmpdir = Path(tmp)
+            for asset in scan_assets:
+                name = asset.get("name") or ""
+                url = asset.get("browser_download_url")
+                print(f"Scanning {name} ({asset.get('size', '?')} bytes)...")
+                local = tmpdir / name
+                try:
+                    download(url, local, gh_token)
+                    digest = sha256_file(local)
                     report = vt_file_report(api_key, digest)
-                attrs = (report or {}).get("data", {}).get("attributes", {})
-                positives, total = summarize_stats(attrs.get("last_analysis_stats"))
-                permalink = f"https://www.virustotal.com/gui/file/{digest}"
-                artifacts_out.append(
-                    {
-                        "name": name,
-                        "sha256": digest,
-                        "positives": positives,
-                        "total": total,
-                        "status": "clean" if positives == 0 else ("flagged" if (positives or 0) > 0 else "unknown"),
-                        "permalink": permalink,
-                        "download_url": url,
-                        "scanned_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    }
-                )
-                print(f"  {name}: {positives}/{total} -> {permalink}")
-                # Free-tier: ~4 requests/min
-                time.sleep(20)
-            except Exception as e:
-                print(f"  ERROR scanning {name}: {e}", file=sys.stderr)
-                artifacts_out.append(
-                    {
-                        "name": name,
-                        "sha256": None,
-                        "positives": None,
-                        "total": None,
-                        "status": "error",
-                        "permalink": None,
-                        "download_url": url,
-                        "error": str(e),
-                    }
-                )
-                time.sleep(20)
+                    if report is None:
+                        print(f"  Not on VT yet — uploading {name} ({local.stat().st_size} bytes)")
+                        analysis_id = vt_upload_file(api_key, local)
+                        vt_wait_analysis(api_key, analysis_id, timeout_s=600)
+                        report = vt_file_report(api_key, digest)
+                    attrs = (report or {}).get("data", {}).get("attributes", {})
+                    positives, total = summarize_stats(attrs.get("last_analysis_stats"))
+                    permalink = f"https://www.virustotal.com/gui/file/{digest}"
+                    artifacts_out.append(
+                        {
+                            "name": name,
+                            "sha256": digest,
+                            "positives": positives,
+                            "total": total,
+                            "status": "clean" if positives == 0 else ("flagged" if (positives or 0) > 0 else "unknown"),
+                            "permalink": permalink,
+                            "download_url": url,
+                            "scanned_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        }
+                    )
+                    print(f"  {name}: {positives}/{total} -> {permalink}")
+                    # Free-tier: ~4 requests/min
+                    time.sleep(20)
+                except Exception as e:
+                    print(f"  ERROR scanning {name}: {e}", file=sys.stderr)
+                    artifacts_out.append(
+                        {
+                            "name": name,
+                            "sha256": None,
+                            "positives": None,
+                            "total": None,
+                            "status": "error",
+                            "permalink": None,
+                            "download_url": url,
+                            "error": str(e),
+                        }
+                    )
+                    time.sleep(20)
 
     clean_count = sum(1 for a in artifacts_out if a.get("status") == "clean")
     flagged = sum(1 for a in artifacts_out if a.get("status") == "flagged")
+    site_ok = website_block.get("status") in ("clean", "flagged", "unknown")
     if not artifacts_out:
-        status = "pending"
-        message = "No release artifacts found to scan."
+        status = "partial" if site_ok else "pending"
+        message = (
+            "No scannable release package assets on GitHub yet. "
+            f"Website was scanned. ({release_note})"
+            if site_ok
+            else f"No release artifacts found to scan. {release_note}"
+        ).strip()
     elif flagged:
         status = "attention"
         message = f"{flagged} artifact(s) have at least one engine detection. Review VirusTotal reports before claiming clean."
@@ -357,6 +468,7 @@ def main() -> int:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     print(f"Wrote {out_path}")
+    # Always succeed after writing results — missing packages must not fail the pipeline.
     return 0
 
 

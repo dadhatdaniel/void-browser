@@ -116,6 +116,9 @@ jobs:
     permissions:
       contents: read
     environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'release' || 'build' }}
+    # secrets cannot be referenced in step `if:` — map presence to env first
+    env:
+      HAS_WINDOWS_CERT: ${{ secrets.WINDOWS_CERT_PFX != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -161,7 +164,7 @@ jobs:
       # Optional Authenticode signing — requires GitHub secrets WINDOWS_CERT_PFX + WINDOWS_CERT_PASSWORD
       # See docs/CODE_SIGNING.md. Skipped when secrets are absent (unsigned early-access builds).
       - name: Sign Windows packages
-        if: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.WINDOWS_CERT_PFX != '' }}
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && env.HAS_WINDOWS_CERT == 'true' }}
         env:
           WINDOWS_CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
           WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
@@ -202,6 +205,10 @@ jobs:
     permissions:
       contents: read
     environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'release' || 'build' }}
+    # secrets cannot be referenced in step `if:` — map presence to env first
+    env:
+      HAS_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE != '' }}
+      HAS_APPLE_NOTARY: ${{ secrets.APPLE_ID != '' && secrets.APPLE_TEAM_ID != '' && secrets.APPLE_ID_PASSWORD != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -237,7 +244,7 @@ jobs:
           wc -l easylist-full.txt easyprivacy-full.txt
 
       - name: Import Apple signing certificate
-        if: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.APPLE_CERTIFICATE != '' }}
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && env.HAS_APPLE_CERTIFICATE == 'true' }}
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -267,7 +274,7 @@ jobs:
 
       # Optional notarization — requires Apple Developer Program + secrets (docs/CODE_SIGNING.md)
       - name: Notarize and staple macOS DMG
-        if: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.APPLE_ID != '' && secrets.APPLE_TEAM_ID != '' && secrets.APPLE_ID_PASSWORD != '' }}
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && env.HAS_APPLE_NOTARY == 'true' }}
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}

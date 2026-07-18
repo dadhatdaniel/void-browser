@@ -11,8 +11,10 @@
 #   3. DEPLOY-SITE (main) — website deployment with health checks
 #
 # TO CREATE A RELEASE:
-#   git tag v0.1.0 && git push origin v0.1.0
-#   → GitLab mirror pushes to GitHub → Actions builds all 3 platforms
+#   git tag v0.1.0-alpha.N && git push origin v0.1.0-alpha.N
+#   → GitLab push-mirror syncs the tag to GitHub (often WITHOUT a tag PushEvent)
+#   → trigger-github-build job POSTs workflow_dispatch (needs GITHUB_TOKEN / GH_WORKFLOW_TOKEN)
+#   → GitHub Actions Build & Release builds all 3 platforms
 # ═══════════════════════════════════════════════════
 
 stages:
@@ -98,6 +100,8 @@ license-check:
 # Add GitLab CI/CD variable: VIRUSTOTAL_API_KEY (masked, protected optional)
 # Optional: GITHUB_TOKEN (read-only) for higher GitHub asset download limits
 # Job writes website/scan-results.json — never calls VT from the browser.
+# Packages: prefers VT_RELEASE_TAG/RELEASE_TAG, else newest GitHub Release with
+# assets (tags without a published Release no longer 404-fail the job).
 
 virus-scan:
   stage: scan
@@ -105,26 +109,29 @@ virus-scan:
   timeout: 2h
   needs: []
   variables:
-    # Bump when a newer GitHub Release exists with assets
-    VT_RELEASE_TAG: "v0.1.0-alpha.6"
     VT_WEBSITE_URL: "https://void.lightfoot.cloud"
   script:
     - |
       set -e
+      # Hint only — script falls back if this tag has no GitHub Release/assets yet
+      export VT_RELEASE_TAG="${VT_RELEASE_TAG:-${RELEASE_TAG:-${CI_COMMIT_TAG:-}}}"
       if [ -z "${VIRUSTOTAL_API_KEY:-}" ]; then
         echo "VIRUSTOTAL_API_KEY not set — writing pending placeholder (no fake scores)."
         python3 scripts/virustotal-scan.py --dry-run
       else
         echo "VirusTotal key present (value not printed). Scanning website + release assets..."
+        echo "Preferred release tag: ${VT_RELEASE_TAG:-"(auto)"}"
         python3 scripts/virustotal-scan.py
       fi
     - test -f website/scan-results.json
-    - python3 -c "import json; d=json.load(open('website/scan-results.json')); print('status=', d.get('status'), 'artifacts=', len(d.get('artifacts') or []), 'site=', (d.get('website') or {}).get('positives'), '/', (d.get('website') or {}).get('total'))"
+    - python3 -c "import json; d=json.load(open('website/scan-results.json')); print('status=', d.get('status'), 'tag=', d.get('release_tag'), 'artifacts=', len(d.get('artifacts') or []), 'site=', (d.get('website') or {}).get('positives'), '/', (d.get('website') or {}).get('total'))"
   artifacts:
     paths:
       - website/scan-results.json
     expire_in: 30 days
     when: always
+    # Artifact upload failures after a green script must not mark the job failed
+  allow_failure: true
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       when: manual
@@ -227,12 +234,17 @@ site-e2e:
     SITE_E2E_BASE: "http://10.0.0.10:5080"
 
 # ── TRIGGER GITHUB BUILD (tags) ──────────────────
-# GitLab push-mirror often updates tag refs without a GitHub tag PushEvent,
-# so Actions never starts. This job explicitly dispatches Build & Release.
-# CI/CD variable GITHUB_TOKEN must be able to POST workflow_dispatch:
-#   - Classic PAT: scopes repo + workflow (recommended for CI)
-#   - Fine-grained PAT: Repository permissions -> Actions: Read and write
-# Contents: Read is enough for dispatch-by-tag-ref; Contents: Write only if recreating tags.
+# Mirror-only is NOT enough: GitLab→GitHub push mirroring syncs tag refs but
+# often does NOT create a GitHub tag PushEvent, so on.push.tags never fires.
+# This job POSTs workflow_dispatch after the tag exists on GitHub.
+#
+# GitLab CI/CD variable (Settings → CI/CD → Variables), masked + protected:
+#   Name:  GITHUB_TOKEN  (or GH_WORKFLOW_TOKEN)
+#   Value: classic PAT owned by dadhatdaniel with scopes: repo + workflow
+#   Fine-grained alternative: Actions = Read and write (Contents Read OK for tag ref)
+#
+# Manual fallback (no PAT): https://github.com/dadhatdaniel/void-browser/actions/workflows/build.yml
+#   → Run workflow → choose the tag.
 
 trigger-github-build:
   stage: notify
@@ -245,15 +257,38 @@ trigger-github-build:
   script:
     - |
       set -eu
-      if [ -z "${GITHUB_TOKEN:-}" ]; then
-        echo "GITHUB_TOKEN not set — cannot dispatch GitHub Actions"
+      TOKEN="${GH_WORKFLOW_TOKEN:-${GITHUB_TOKEN:-}}"
+      if [ -z "$TOKEN" ]; then
+        echo "BLOCKER: set GitLab CI variable GITHUB_TOKEN (or GH_WORKFLOW_TOKEN)"
+        echo "  classic PAT: repo + workflow (user dadhatdaniel)"
+        echo "  then re-run this job, or manually:"
+        echo "  https://github.com/dadhatdaniel/void-browser/actions/workflows/build.yml"
         exit 1
+      fi
+      echo "Waiting for GitHub mirror to have tag $CI_COMMIT_TAG ..."
+      tag_ok=0
+      for i in 1 2 3 4 5 6 7 8 9 10; do
+        tcode=$(curl -sS -o /tmp/gh-tag.json -w '%{http_code}' \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer $TOKEN" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          "https://api.github.com/repos/dadhatdaniel/void-browser/git/ref/tags/$CI_COMMIT_TAG" || true)
+        if [ "$tcode" = "200" ]; then
+          tag_ok=1
+          echo "Tag present on GitHub (attempt $i)"
+          break
+        fi
+        echo "  tag not visible yet (HTTP ${tcode:-?}); sleep 15s ($i/10)"
+        sleep 15
+      done
+      if [ "$tag_ok" != "1" ]; then
+        echo "WARN: tag not found on GitHub after wait — dispatch may 422; check push mirror"
       fi
       echo "Dispatching Build & Release for ref=$CI_COMMIT_TAG"
       code=$(curl -sS -o /tmp/gh-dispatch.json -w '%{http_code}' \
         -X POST \
         -H "Accept: application/vnd.github+json" \
-        -H "Authorization: Bearer $GITHUB_TOKEN" \
+        -H "Authorization: Bearer $TOKEN" \
         -H "X-GitHub-Api-Version: 2022-11-28" \
         "https://api.github.com/repos/dadhatdaniel/void-browser/actions/workflows/build.yml/dispatches" \
         -d "{\"ref\":\"$CI_COMMIT_TAG\"}")
@@ -261,11 +296,18 @@ trigger-github-build:
       cat /tmp/gh-dispatch.json || true
       if [ "$code" = "204" ] || [ "$code" = "200" ]; then
         echo "GitHub workflow_dispatch accepted"
+        echo "Watch: https://github.com/dadhatdaniel/void-browser/actions/workflows/build.yml"
         exit 0
       fi
       if [ "$code" = "403" ] || [ "$code" = "401" ]; then
-        echo "BLOCKER: GITHUB_TOKEN needs classic repo+workflow (or fine-grained Actions: Read and write) — open Actions → Build & Release → Run workflow on tag $CI_COMMIT_TAG"
-        echo "Also ensure TAURI_SIGNING_PRIVATE_KEY is set on GitHub Environment 'release' for updater artifacts."
+        echo "BLOCKER: token needs classic repo+workflow (fine-grained Actions: Read and write)."
+        echo "Prior fine-grained PATs without Actions:write get 403 — do not spam retries."
+        echo "Manual: https://github.com/dadhatdaniel/void-browser/actions/workflows/build.yml → Run workflow → $CI_COMMIT_TAG"
+        exit 1
+      fi
+      if [ "$code" = "422" ]; then
+        echo "BLOCKER: GitHub rejected ref $CI_COMMIT_TAG (mirror lag or invalid workflow)."
+        echo "Manual: https://github.com/dadhatdaniel/void-browser/actions/workflows/build.yml → Run workflow → $CI_COMMIT_TAG"
         exit 1
       fi
       echo "Unexpected response"

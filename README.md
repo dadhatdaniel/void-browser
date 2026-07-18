@@ -147,10 +147,13 @@ void-browser/
 
 Source of truth is GitLab (`lightfootcloud/void-browser`). Do not push releases from this workspace to GitHub — the mirror handles git refs.
 
-**GitHub Actions not starting after a tag?** GitLab→GitHub push mirroring often updates tag refs without a tag `PushEvent`, and the CI `GITHUB_TOKEN` may lack `actions:write` / classic `workflow` scope (dispatch returns 403). Fix:
+**Avoid manual “Run workflow” forever:** push-mirroring alone is insufficient — it syncs the tag ref but usually does **not** fire GitHub `on.push.tags`. GitLab job `trigger-github-build` (tag pipelines) calls `workflow_dispatch` instead.
 
-1. Actions → **Build & Release** → **Run workflow** → choose tag (e.g. `v0.1.0-alpha.8`), or
-2. Give the mirror / `GITHUB_TOKEN` a classic PAT with `repo` + `workflow` (or fine-grained **Actions: Read and write**), then re-push / re-dispatch.
+1. GitLab → **Settings → CI/CD → Variables** → add masked/protected **`GITHUB_TOKEN`** (alias **`GH_WORKFLOW_TOKEN`** also works).
+2. Value: a **classic** PAT owned by `dadhatdaniel` with scopes **`repo`** + **`workflow`** (fine-grained needs **Actions: Read and write**; Contents-only PATs get **403**).
+3. Push a `v*` tag to GitLab → after mirror lag, CI dispatches [Build & Release](https://github.com/dadhatdaniel/void-browser/actions/workflows/build.yml).
+
+One-time manual fallback if the token is missing: that same Actions URL → **Run workflow** → pick the tag.
 
 **Updater signing:** set `TAURI_SIGNING_PRIVATE_KEY` (+ optional password) as secrets on GitHub Environment `release` so tag builds publish `latest.json` + `.sig` artifacts. Without it, installers still build; in-app updates stay unavailable.
 
