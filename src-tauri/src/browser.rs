@@ -151,14 +151,8 @@ fn reflow_content_webviews(app: &AppHandle, chrome_height: f64) -> Result<(), St
 
 fn reflow_all(app: &AppHandle) -> Result<(), String> {
     let browser = app.state::<BrowserState>();
-    let chrome_height = *browser
-        .chrome_height
-        .lock()
-        .map_err(|e| e.to_string())?;
-    let browsing = *browser
-        .shell_browsing
-        .lock()
-        .map_err(|e| e.to_string())?;
+    let chrome_height = *browser.chrome_height.lock().map_err(|e| e.to_string())?;
+    let browsing = *browser.shell_browsing.lock().map_err(|e| e.to_string())?;
     layout_shell(app, chrome_height, browsing)?;
     if browsing {
         reflow_content_webviews(app, chrome_height)?;
@@ -169,10 +163,7 @@ fn reflow_all(app: &AppHandle) -> Result<(), String> {
 fn set_shell_browsing(app: &AppHandle, browsing: bool) -> Result<(), String> {
     {
         let browser = app.state::<BrowserState>();
-        *browser
-            .shell_browsing
-            .lock()
-            .map_err(|e| e.to_string())? = browsing;
+        *browser.shell_browsing.lock().map_err(|e| e.to_string())? = browsing;
     }
     reflow_all(app)
 }
@@ -550,10 +541,7 @@ pub fn get_webview_info(
         .unwrap_or(1.0);
     let size = webview.size().map_err(|e| e.to_string())?;
     let pos = webview.position().map_err(|e| e.to_string())?;
-    let url = webview
-        .url()
-        .map(|u| u.to_string())
-        .unwrap_or_default();
+    let url = webview.url().map(|u| u.to_string()).unwrap_or_default();
 
     // Webview2 has no reliable is_visible on Webview; treat "tracked + non-zero" as visible.
     let width = f64::from(size.width) / scale;

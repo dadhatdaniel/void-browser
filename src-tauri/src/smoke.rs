@@ -16,8 +16,7 @@ use tauri::{AppHandle, Manager};
 const SMOKE_URL: &str = "https://example.com/";
 
 pub fn requested() -> bool {
-    std::env::args().any(|a| a == "--smoke-test")
-        || std::env::var_os("VOID_SMOKE_TEST").is_some()
+    std::env::args().any(|a| a == "--smoke-test") || std::env::var_os("VOID_SMOKE_TEST").is_some()
 }
 
 fn log_path() -> PathBuf {
@@ -56,14 +55,14 @@ pub fn spawn(app: AppHandle) {
         let tab_id = {
             let Some(state) = app.try_state::<AppState>() else {
                 smoke_log("FAIL: AppState missing");
-                let _ = app.exit(1);
+                app.exit(1);
                 return;
             };
             let id = match state.tabs.lock() {
                 Ok(mut tabs) => tabs.create(Some(SMOKE_URL.to_string())).id,
                 Err(e) => {
                     smoke_log(&format!("FAIL: tabs lock: {e}"));
-                    let _ = app.exit(1);
+                    app.exit(1);
                     return;
                 }
             };
@@ -88,7 +87,7 @@ pub fn spawn(app: AppHandle) {
             Ok(()) => smoke_log("navigate_browser ok"),
             Err(e) => {
                 smoke_log(&format!("FAIL: navigate_browser: {e}"));
-                let _ = app.exit(1);
+                app.exit(1);
                 return;
             }
         }
@@ -105,7 +104,7 @@ pub fn spawn(app: AppHandle) {
             Ok(i) => i,
             Err(e) => {
                 smoke_log(&format!("FAIL: get_webview_info: {e}"));
-                let _ = app.exit(1);
+                app.exit(1);
                 return;
             }
         };
@@ -126,7 +125,7 @@ pub fn spawn(app: AppHandle) {
 
         if !info.shell_browsing {
             smoke_log("FAIL: shell_browsing is false — chrome still covering content");
-            let _ = app.exit(1);
+            app.exit(1);
             return;
         }
         if info.width < 100.0 || info.height < 100.0 {
@@ -134,7 +133,7 @@ pub fn spawn(app: AppHandle) {
                 "FAIL: content webview bounds too small: {}x{} (black-screen regression)",
                 info.width, info.height
             ));
-            let _ = app.exit(1);
+            app.exit(1);
             return;
         }
         if info.y + 1.0 < info.chrome_height * 0.5 {
@@ -142,7 +141,7 @@ pub fn spawn(app: AppHandle) {
                 "FAIL: content y={} looks wrong vs chrome_height={}",
                 info.y, info.chrome_height
             ));
-            let _ = app.exit(1);
+            app.exit(1);
             return;
         }
         if info.shell_height > info.chrome_height + 40.0 {
@@ -150,7 +149,7 @@ pub fn spawn(app: AppHandle) {
                 "FAIL: shell height {} still near full window (chrome_height={}) — cover risk",
                 info.shell_height, info.chrome_height
             ));
-            let _ = app.exit(1);
+            app.exit(1);
             return;
         }
         if !info.url.contains("example.com") {
@@ -158,11 +157,11 @@ pub fn spawn(app: AppHandle) {
                 "FAIL: expected example.com in url, got '{}'",
                 info.url
             ));
-            let _ = app.exit(1);
+            app.exit(1);
             return;
         }
 
         smoke_log("PASS: content webview visible with example.com");
-        let _ = app.exit(0);
+        app.exit(0);
     });
 }
