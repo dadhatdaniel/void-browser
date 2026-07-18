@@ -1,17 +1,17 @@
 {
   "status": "attention",
   "provider": "VirusTotal",
-  "message": "Website and most packages had 0 detections. Some packages had engine hits (Void.Browser_0.1.0-alpha.11_x64-setup.exe) \u2014 common for new unsigned installers; review the report before treating it as malware.",
+  "message": "Website and most packages had 0 detections. Some packages had engine hits (Void.Browser_0.1.0-alpha.12_x64-setup.exe) \u2014 common for new unsigned installers; review the report before treating it as malware.",
   "website": {
     "url": "https://void.lightfoot.cloud",
     "status": "clean",
     "permalink": "https://www.virustotal.com/gui/url/b5098f1987694092295fe972566bef5dd8a7ac2a5f2e117d386f9d84f205de41",
     "positives": 0,
     "total": 92,
-    "scanned_at": "2026-07-18T16:20:30Z"
+    "scanned_at": "2026-07-18T17:12:40Z"
   },
-  "release_tag": "v0.1.0-alpha.11",
-  "scanned_at": "2026-07-18T16:24:49Z",
+  "release_tag": "v0.1.0-alpha.12",
+  "scanned_at": "2026-07-18T17:27:11Z",
   "limitations": [
     "macOS builds are unsigned \u2014 Gatekeeper may warn until notarized.",
     "Windows builds are unsigned \u2014 SmartScreen / Defender may warn on first run.",
@@ -19,44 +19,54 @@
   ],
   "artifacts": [
     {
-      "name": "Void.Browser_0.1.0-alpha.11_x64-setup.exe",
-      "sha256": "85f39d3338cd86914212981487803cde6bc49a62b4f835ef0e210f004e965bf0",
-      "positives": 3,
+      "name": "Void.Browser_0.1.0-alpha.12_x64-setup.exe",
+      "sha256": "9afe37c821176a62d5afaa4926289eb66eae07519a8c8d2b0093f9024b64ad1c",
+      "positives": 2,
       "total": 74,
       "status": "flagged",
-      "permalink": "https://www.virustotal.com/gui/file/85f39d3338cd86914212981487803cde6bc49a62b4f835ef0e210f004e965bf0",
-      "download_url": "https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.11/Void.Browser_0.1.0-alpha.11_x64-setup.exe",
-      "scanned_at": "2026-07-18T16:22:36Z"
+      "permalink": "https://www.virustotal.com/gui/file/9afe37c821176a62d5afaa4926289eb66eae07519a8c8d2b0093f9024b64ad1c",
+      "download_url": "https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.12/Void.Browser_0.1.0-alpha.12_x64-setup.exe",
+      "scanned_at": "2026-07-18T17:27:11Z"
     },
     {
-      "name": "Void.Browser_0.1.0-alpha.11_aarch64.dmg",
-      "sha256": "56e33c9d9e2599ddf9a5a0b6c70216b8ac7c4b65b3918bf722ee6881e07e6b35",
+      "name": "Void.Browser_0.1.0-alpha.12_aarch64.dmg",
+      "sha256": "c4353c85e3dd0c1db78c523c9bbca5dee05ede8fd58769c542bb45bde69dddd1",
       "positives": 0,
       "total": 74,
       "status": "clean",
-      "permalink": "https://www.virustotal.com/gui/file/56e33c9d9e2599ddf9a5a0b6c70216b8ac7c4b65b3918bf722ee6881e07e6b35",
-      "download_url": "https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.11/Void.Browser_0.1.0-alpha.11_aarch64.dmg",
-      "scanned_at": "2026-07-18T16:23:46Z"
+      "permalink": "https://www.virustotal.com/gui/file/c4353c85e3dd0c1db78c523c9bbca5dee05ede8fd58769c542bb45bde69dddd1",
+      "download_url": "https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.12/Void.Browser_0.1.0-alpha.12_aarch64.dmg",
+      "scanned_at": "2026-07-18T17:27:11Z"
     },
     {
-      "name": "Void.Browser_0.1.0-alpha.11_amd64.deb",
-      "sha256": "20c1b412ded1602263449f4c5b0eb67ded1fe84b499a535677528815dc49826a",
+      "name": "Void.Browser_0.1.0-alpha.12_amd64.deb",
+      "sha256": "cd5e3e2a79ca904e1d6c531e25a22e2edf8b04043769fbe311dee6cd6a7c4282",
       "positives": 0,
       "total": 74,
       "status": "clean",
-      "permalink": "https://www.virustotal.com/gui/file/20c1b412ded1602263449f4c5b0eb67ded1fe84b499a535677528815dc49826a",
-      "download_url": "https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.11/Void.Browser_0.1.0-alpha.11_amd64.deb",
-      "scanned_at": "2026-07-18T16:24:07Z"
+      "permalink": "https://www.virustotal.com/gui/file/cd5e3e2a79ca904e1d6c531e25a22e2edf8b04043769fbe311dee6cd6a7c4282",
+      "download_url": "https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.12/Void.Browser_0.1.0-alpha.12_amd64.deb",
+      "scanned_at": "2026-07-18T17:27:11Z"
     },
     {
-      "name": "Void.Browser_0.1.0-alpha.11_amd64.AppImage",
-      "sha256": "bc79305d5f246f3559bfb9f22cc779d5d73ac6c58f84ec4a274c5f150ba11ac2",
+      "name": "void-browser.exe",
+      "sha256": "17e011ab116aae10bc76c1949f8defe0f8dea5c5ea27180af5813feef14f8020",
       "positives": 0,
       "total": 74,
       "status": "clean",
-      "permalink": "https://www.virustotal.com/gui/file/bc79305d5f246f3559bfb9f22cc779d5d73ac6c58f84ec4a274c5f150ba11ac2",
-      "download_url": "https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.11/Void.Browser_0.1.0-alpha.11_amd64.AppImage",
-      "scanned_at": "2026-07-18T16:24:29Z"
+      "permalink": "https://www.virustotal.com/gui/file/17e011ab116aae10bc76c1949f8defe0f8dea5c5ea27180af5813feef14f8020",
+      "download_url": "https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.12/void-browser.exe",
+      "scanned_at": "2026-07-18T17:27:11Z"
+    },
+    {
+      "name": "Void.Browser_0.1.0-alpha.12_amd64.AppImage",
+      "sha256": "51d10c8194df5f29a1a365f3863eddddd06d3e54cafaa42215eccf267ca1bfe5",
+      "positives": 0,
+      "total": 74,
+      "status": "clean",
+      "permalink": "https://www.virustotal.com/gui/file/51d10c8194df5f29a1a365f3863eddddd06d3e54cafaa42215eccf267ca1bfe5",
+      "download_url": "https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.12/Void.Browser_0.1.0-alpha.12_amd64.AppImage",
+      "scanned_at": "2026-07-18T17:27:11Z"
     }
   ]
 }
