@@ -780,15 +780,32 @@ function wireChromeContextMenu() {
 }
 
 async function wireBackendEvents() {
-  await listen('tab-navigated', (event) => {
+  await listen('tab-navigated', async (event) => {
     const { tabId, url } = event.payload || {};
-    const tab = tabs.find((t) => t.id === tabId);
+    let tab = tabs.find((t) => t.id === tabId);
+    // Backend may create/navigate tabs before chrome JS knows about them (smoke / races).
+    if (!tab && tabId) {
+      try {
+        const listed = await invoke('list_tabs');
+        if (Array.isArray(listed) && listed.length) {
+          tabs = listed;
+          if (!activeTabId || !tabs.some((t) => t.id === activeTabId)) {
+            activeTabId = (listed.find((t) => t.active) || listed[0]).id;
+          }
+          tab = tabs.find((t) => t.id === tabId);
+        }
+      } catch (_) { /* ok */ }
+    }
     if (!tab) return;
     tab.url = url;
     tab.loading = false;
     if (tabId === activeTabId) {
-      urlBar.value = url;
+      urlBar.value = isInternalUrl(url) ? '' : url;
       setSecurityIndicator(url);
+      if (url && !isInternalUrl(url) && !settingsOpen) {
+        showPage('webview');
+        await showContentFor(tabId);
+      }
     }
     try {
       tab.title = new URL(url).hostname || tab.title;
@@ -835,12 +852,27 @@ async function wireBackendEvents() {
     new ResizeObserver(() => reportChromeHeight()).observe(chromeEl);
   }
 
-  const homepage = appConfig?.homepage;
-  if (homepage && homepage !== 'void://newtab' && !homepage.startsWith('void://')) {
-    await createTab(homepage);
-    await navigate(homepage);
+  // Prefer tabs already created by the backend (e.g. --smoke-test) so chrome
+  // init does not clobber a navigated content webview with hide_browser_content.
+  let existing = null;
+  try {
+    existing = await invoke('list_tabs');
+  } catch (_) { /* ok */ }
+
+  if (Array.isArray(existing) && existing.length > 0) {
+    tabs = existing;
+    const active = existing.find((t) => t.active) || existing[0];
+    activeTabId = active.id;
+    renderTabs();
+    await activateTabView(active);
   } else {
-    await createTab();
+    const homepage = appConfig?.homepage;
+    if (homepage && homepage !== 'void://newtab' && !homepage.startsWith('void://')) {
+      await createTab(homepage);
+      await navigate(homepage);
+    } else {
+      await createTab();
+    }
   }
 
   shieldBtn.classList.add('active');

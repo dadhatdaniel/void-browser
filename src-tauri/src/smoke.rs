@@ -90,10 +90,29 @@ pub fn spawn(app: AppHandle) {
         }
 
         // Give WebView2 time to paint; retry — some hosts drop the first IPC.
+        // Chrome JS init can race and call hide_browser_content after navigate;
+        // re-show browsing mode each attempt before measuring.
         let mut info = None;
         let mut last_err = String::new();
-        for attempt in 1..=8 {
+        for attempt in 1..=10 {
             tokio::time::sleep(Duration::from_millis(if attempt == 1 { 2500 } else { 750 })).await;
+
+            {
+                let browser = app.state::<BrowserState>();
+                let state = app.state::<AppState>();
+                if let Err(e) = browser::show_browser_content(
+                    tab_id.clone(),
+                    app.clone(),
+                    browser,
+                    state,
+                )
+                .await
+                {
+                    smoke_log(&format!(
+                        "show_browser_content attempt {attempt}: {e}"
+                    ));
+                }
+            }
 
             let label = format!("content-{tab_id}");
             let present = app.get_webview(&label).is_some();
@@ -108,8 +127,30 @@ pub fn spawn(app: AppHandle) {
             };
             match result {
                 Ok(i) => {
-                    info = Some(i);
-                    break;
+                    let shell_ok = i.shell_height <= i.chrome_height + 40.0;
+                    if i.shell_browsing
+                        && i.width >= 100.0
+                        && i.height >= 100.0
+                        && shell_ok
+                        && i.url.contains("example.com")
+                    {
+                        info = Some(i);
+                        break;
+                    }
+                    smoke_log(&format!(
+                        "attempt {attempt}: not ready url={} visible={} {}x{} shell_browsing={} shell_h={} chrome_h={}",
+                        i.url,
+                        i.visible,
+                        i.width,
+                        i.height,
+                        i.shell_browsing,
+                        i.shell_height,
+                        i.chrome_height
+                    ));
+                    last_err = format!(
+                        "shell_browsing={} bounds={}x{} shell_h={}",
+                        i.shell_browsing, i.width, i.height, i.shell_height
+                    );
                 }
                 Err(e) => {
                     last_err = e;
