@@ -38,8 +38,38 @@ pub fn webview2_browser_args() -> String {
     String::new()
 }
 
+/// Persistent WebView2 profile (cookies, localStorage, Google sessions).
+/// Respects an existing `WEBVIEW2_USER_DATA_FOLDER` override.
+#[cfg(target_os = "windows")]
+pub fn configure_webview2_profile() {
+    if std::env::var_os("WEBVIEW2_USER_DATA_FOLDER").is_some() {
+        eprintln!("[void] WebView2 profile: using WEBVIEW2_USER_DATA_FOLDER from env");
+        return;
+    }
+    if let Some(data) = dirs::data_dir() {
+        let profile = data.join("void-browser").join("webview2-profile");
+        if let Err(e) = std::fs::create_dir_all(&profile) {
+            eprintln!("[void] WebView2 profile: mkdir failed: {e}");
+            return;
+        }
+        // Safety: called once at process start before webviews spawn.
+        unsafe {
+            std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", &profile);
+        }
+        eprintln!(
+            "[void] WebView2 profile: {}",
+            profile.display()
+        );
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn configure_webview2_profile() {}
+
 /// Call before any WebView is created.
 pub fn configure_hardware_acceleration() {
+    configure_webview2_profile();
+
     #[cfg(target_os = "windows")]
     {
         let args = webview2_browser_args();

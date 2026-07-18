@@ -356,7 +356,7 @@ body.browsing #content-area {
   text-transform: uppercase;
 }
 
-/* ── Settings ──────────────────────────────────── */
+/* ── Settings (overlay mode — does not replace the active tab) ── */
 
 #settings-page { justify-content: center; }
 
@@ -367,11 +367,27 @@ body.browsing #content-area {
   margin: 0 auto;
 }
 
+#settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
 #settings-content h2 {
   font-size: 26px;
   font-weight: 300;
   letter-spacing: 3px;
-  margin-bottom: 24px;
+  margin: 0;
+}
+
+#settings-close-btn {
+  font-size: 22px;
+  line-height: 1;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
 }
 
 .settings-group {
@@ -455,6 +471,7 @@ body.browsing #content-area {
 }
 
 #settings-save-btn,
+#settings-done-btn,
 #check-updates-btn {
   background: var(--accent);
   color: #fff;
@@ -466,6 +483,12 @@ body.browsing #content-area {
   cursor: pointer;
 }
 
+#settings-done-btn {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+
 #check-updates-btn {
   padding: 8px 14px;
   font-size: 12px;
@@ -474,6 +497,7 @@ body.browsing #content-area {
 
 #settings-save-btn:hover,
 #check-updates-btn:hover { background: var(--accent-hover); }
+#settings-done-btn:hover { background: var(--bg-secondary); }
 
 #check-updates-btn:disabled {
   opacity: 0.6;

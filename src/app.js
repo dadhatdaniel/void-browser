@@ -19,6 +19,8 @@ let blockedCount = 0;
 /** @type {object|null} full VoidConfig from Rust */
 let appConfig = null;
 let browsingActive = false;
+/** Settings is an overlay — never mutates the active tab URL/title. */
+let settingsOpen = false;
 
 const tabsContainer = document.getElementById('tabs-container');
 const newTabBtn = document.getElementById('new-tab-btn');
@@ -176,16 +178,42 @@ function isInternalUrl(url) {
   return !url || url.startsWith('void://');
 }
 
+async function openSettings() {
+  settingsOpen = true;
+  // Hide content webviews but keep tab list + URLs intact.
+  await hideContent();
+  showPage('settings');
+  await populateSettingsForm();
+  document.getElementById('settings-close-btn')?.focus();
+}
+
+async function closeSettings() {
+  if (!settingsOpen) return;
+  settingsOpen = false;
+  const tab = tabs.find((t) => t.id === activeTabId);
+  await activateTabView(tab);
+}
+
 async function activateTabView(tab) {
   if (!tab) return;
+  // Closing/switching while settings was open clears the overlay flag.
+  settingsOpen = false;
   urlBar.value = isInternalUrl(tab.url) ? '' : tab.url;
   setSecurityIndicator(tab.url);
 
+  // Legacy: an old session may still have void://settings as a tab URL.
+  // Treat it as new-tab chrome and open the overlay instead of destroying state.
   if (tab.url === 'void://settings') {
+    tab.url = 'void://newtab';
+    tab.title = 'New Tab';
+    renderTabs();
     await hideContent();
-    showPage('settings');
-    await populateSettingsForm();
-  } else if (isInternalUrl(tab.url)) {
+    showPage('newtab');
+    await openSettings();
+    return;
+  }
+
+  if (isInternalUrl(tab.url)) {
     await hideContent();
     showPage('newtab');
   } else {
@@ -290,10 +318,8 @@ async function navigate(raw) {
     return;
   }
   if (url === 'void://settings') {
-    tab.url = url;
-    tab.title = 'Settings';
-    renderTabs();
-    await activateTabView(tab);
+    // Overlay only — do not replace the browsing tab.
+    await openSettings();
     return;
   }
 
@@ -518,17 +544,14 @@ searchInput?.addEventListener('keydown', (e) => {
 
 newTabBtn.addEventListener('click', () => createTab());
 settingsBtn.addEventListener('click', async () => {
-  const tab = tabs.find((t) => t.id === activeTabId);
-  if (tab) {
-    tab.url = 'void://settings';
-    tab.title = 'Settings';
-    renderTabs();
+  if (settingsOpen) {
+    await closeSettings();
+  } else {
+    await openSettings();
   }
-  urlBar.value = '';
-  await hideContent();
-  showPage('settings');
-  await populateSettingsForm();
 });
+document.getElementById('settings-close-btn')?.addEventListener('click', () => closeSettings());
+document.getElementById('settings-done-btn')?.addEventListener('click', () => closeSettings());
 
 backBtn.addEventListener('click', async () => {
   if (!activeTabId || !browsingActive) return;
@@ -593,6 +616,11 @@ document.addEventListener('keydown', (e) => {
   // Never intercept clipboard shortcuts — let the focused input / WebView2 handle them.
   const key = e.key.toLowerCase();
   if (e.ctrlKey && (key === 'c' || key === 'v' || key === 'x' || key === 'a')) {
+    return;
+  }
+  if (e.key === 'Escape' && settingsOpen) {
+    e.preventDefault();
+    closeSettings();
     return;
   }
   if (e.ctrlKey && e.key === 't') {

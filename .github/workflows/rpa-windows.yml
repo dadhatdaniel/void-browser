@@ -1,0 +1,80 @@
+# Void Browser — Windows RPA (screenshots + report.json)
+# Manual / nightly. allow_failure via continue-on-error until runner GUI is stable.
+name: RPA Windows
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Nightly 06:15 UTC
+    - cron: "15 6 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  rpa-windows:
+    runs-on: windows-latest
+    # Initial land: do not block other workflows if UIA is flaky on the runner.
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Disable updater artifacts for unsigned CI build
+        shell: bash
+        run: |
+          jq '.bundle.createUpdaterArtifacts = false | .bundle.targets = ["nsis"]' \
+            src-tauri/tauri.conf.json > /tmp/tauri.conf.json
+          mv /tmp/tauri.conf.json src-tauri/tauri.conf.json
+
+      - name: Build Windows exe
+        shell: bash
+        run: cargo tauri build --bundles nsis
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install RPA deps
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r tests/rpa/requirements.txt
+
+      - name: Run RPA smoke + settings
+        shell: pwsh
+        env:
+          VOID_TEST_GOOGLE_USER: ${{ secrets.VOID_TEST_GOOGLE_USER }}
+          VOID_TEST_GOOGLE_PASS: ${{ secrets.VOID_TEST_GOOGLE_PASS }}
+        run: |
+          $exe = Get-ChildItem -Path "src-tauri/target/release" -Filter "void-browser.exe" -Recurse |
+            Select-Object -First 1
+          if (-not $exe) { throw "void-browser.exe missing" }
+          # Prefer smoke + settings first; full set can be enabled later.
+          python tests/rpa/runner.py `
+            --exe $exe.FullName `
+            --scenarios "smoke_navigate,settings_preserves_tab,youtube_signin_page" `
+            --launch-wait 6
+
+      - name: Upload RPA artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: void-rpa-windows-${{ github.run_id }}
+          path: artifacts/rpa/**
+          if-no-files-found: warn
+          retention-days: 14

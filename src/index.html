@@ -91,9 +91,12 @@
       </div>
     </div>
 
-    <div id="settings-page" class="page">
+    <div id="settings-page" class="page" role="dialog" aria-modal="true" aria-label="Settings">
       <div id="settings-content">
-        <h2>Settings</h2>
+        <div id="settings-header">
+          <h2>Settings</h2>
+          <button id="settings-close-btn" class="chrome-btn" type="button" title="Close settings (Esc)" aria-label="Close settings">&times;</button>
+        </div>
 
         <section class="settings-group">
           <h3>Security Level</h3>
@@ -211,6 +214,7 @@
 
         <div id="settings-actions">
           <button id="settings-save-btn" type="button">Save Settings</button>
+          <button id="settings-done-btn" type="button">Done</button>
           <span id="settings-status" aria-live="polite"></span>
         </div>
       </div>

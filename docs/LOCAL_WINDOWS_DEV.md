@@ -16,11 +16,14 @@ Do **not** use an older installed alpha (NSIS/MSI under Program Files) or a stal
 
 | Environment | What it is | What you can test |
 |-------------|------------|-------------------|
-| **This Windows PC** | Native MSVC + WebView2 | Real `.exe`, chrome UI, content webviews, smoke test |
+| **This Windows PC** | Native MSVC + WebView2 | Real `.exe`, chrome UI, content webviews, smoke + **RPA** |
 | **Unraid Docker** (`10.0.0.10`) | Linux containers | Rust unit tests / Linux builds only |
-| **GitHub `windows-latest`** | Remote Windows CI | Release artifacts + automated smoke |
+| **Unraid KVM VMs** | Optional Windows/Linux guests | See [`TEST_VMS.md`](./TEST_VMS.md) |
+| **GitHub `windows-latest`** | Remote Windows CI | Release artifacts + automated smoke / RPA |
 
-Unraid runs **Linux**. It cannot run the Windows `.exe`, initialize WebView2, or show the Tauri GUI. A green Linux `cargo test` does **not** mean the Windows content area paints.
+Unraid Docker runs **Linux**. It cannot run the Windows `.exe`, initialize WebView2, or show the Tauri GUI. A green Linux `cargo test` does **not** mean the Windows content area paints.
+
+**RPA screenshots:** `.\scripts\run-rpa-windows.ps1` → `artifacts/rpa/<timestamp>/` ([RPA_TESTING.md](./RPA_TESTING.md)).
 
 ## Prerequisites
 

@@ -24,6 +24,13 @@ Thumbs.db
 *.msi
 *.exe
 
+# RPA / local QA artifacts (screenshots + JSON reports)
+/artifacts/rpa/*/
+!/artifacts/rpa/.gitkeep
+
+# Python RPA venv
+/tests/rpa/.venv/
+
 # Tauri updater signing keys (never commit private keys)
 *.key
 !*.key.pub

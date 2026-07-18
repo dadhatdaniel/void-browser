@@ -138,7 +138,9 @@ fn webview_dispatcher_ok(webview: &tauri::Webview) -> bool {
     webview.size().is_ok() || webview.bounds().is_ok() || webview.url().is_ok()
 }
 
-/// Ensure WebView2 default context menus + accelerator keys stay enabled.
+/// Ensure WebView2 default context menus, accelerator keys, and status-bar
+/// settings stay enabled. Also softens Google-OAuth friction where the COM
+/// surface allows it (popups still constrained by Edge WebView2 policy).
 fn ensure_editing_features(webview: &tauri::Webview) {
     #[cfg(windows)]
     {
@@ -151,6 +153,9 @@ fn ensure_editing_features(webview: &tauri::Webview) {
                 if let Ok(core) = controller.CoreWebView2() {
                     if let Ok(settings) = core.Settings() {
                         let _ = settings.SetAreDefaultContextMenusEnabled(true);
+                        let _ = settings.SetAreDefaultScriptDialogsEnabled(true);
+                        let _ = settings.SetIsStatusBarEnabled(true);
+                        let _ = settings.SetIsZoomControlEnabled(true);
                         if let Ok(settings3) = settings.cast::<ICoreWebView2Settings3>() {
                             let _ = settings3.SetAreBrowserAcceleratorKeysEnabled(true);
                         }

@@ -81,10 +81,11 @@ shasum -a 256 --check CHECKSUMS.sha256  # macOS
   - **macOS**: Xcode Command Line Tools
   - **Windows**: VS Build Tools (C++/MSVC) + WebView2 (usually pre-installed on Windows 10/11)
 
-**Windows local loop (recommended before tagging releases):** see [`docs/LOCAL_WINDOWS_DEV.md`](docs/LOCAL_WINDOWS_DEV.md). Unraid/Docker is Linux-only and cannot QA the Windows GUI.
+**Windows local loop (recommended before tagging releases):** see [`docs/LOCAL_WINDOWS_DEV.md`](docs/LOCAL_WINDOWS_DEV.md). Unraid/Docker is Linux-only and cannot QA the Windows GUI. RPA screenshots: [`docs/RPA_TESTING.md`](docs/RPA_TESTING.md). Test VMs: [`docs/TEST_VMS.md`](docs/TEST_VMS.md). Google sign-in notes: [`docs/GOOGLE_SIGNIN.md`](docs/GOOGLE_SIGNIN.md).
 
 ```powershell
 .\scripts\dev-windows.ps1 -Release -Smoke
+.\scripts\run-rpa-windows.ps1 -SmokeOnly   # artifacts\rpa\<timestamp>\
 ```
 
 ### Build

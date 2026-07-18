@@ -61,20 +61,21 @@ pub fn stripped_request_headers() -> Vec<&'static str> {
 }
 
 /// Domains that should never be contacted (telemetry endpoints).
-/// Wired into the adblock engine as network filters.
+/// Wired into the adblock engine as network filters / main-frame blocks.
+///
+/// IMPORTANT: Do NOT list Google account / CDN hosts here (`accounts.google.com`,
+/// `ssl.gstatic.com`, `www.google.com`, `youtube.com`). Those are required for
+/// YouTube/Gmail sign-in. Blocking them makes OAuth appear broken.
 pub const BLOCKED_TELEMETRY_DOMAINS: &[&str] = &[
     "clients1.google.com",
     "update.googleapis.com",
     "safebrowsing.googleapis.com",
-    "accounts.google.com",
-    "ssl.gstatic.com",
     "telemetry.mozilla.org",
     "incoming.telemetry.mozilla.org",
     "crash-stats.mozilla.org",
     "vortex.data.microsoft.com",
     "settings-win.data.microsoft.com",
     "watson.telemetry.microsoft.com",
-    "ocsp.digicert.com",
 ];
 
 #[derive(Clone, Default, Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -125,4 +126,31 @@ pub enum HttpsPolicy {
     #[default]
     Strict,
     Off,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn google_auth_hosts_are_not_telemetry_blocked() {
+        let blocked: Vec<String> = BLOCKED_TELEMETRY_DOMAINS
+            .iter()
+            .map(|s| s.to_ascii_lowercase())
+            .collect();
+        for host in [
+            "accounts.google.com",
+            "ssl.gstatic.com",
+            "www.youtube.com",
+            "youtube.com",
+            "mail.google.com",
+        ] {
+            assert!(
+                !blocked
+                    .iter()
+                    .any(|b| host == b.as_str() || host.ends_with(&format!(".{b}"))),
+                "{host} must not be in BLOCKED_TELEMETRY_DOMAINS (breaks sign-in)"
+            );
+        }
+    }
 }
