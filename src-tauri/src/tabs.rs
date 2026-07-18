@@ -144,3 +144,39 @@ impl UrlHost {
             .unwrap_or_else(|| url.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_sets_active_and_newtab_defaults() {
+        let mut mgr = TabManager::new();
+        let tab = mgr.create(None);
+        assert!(tab.active);
+        assert_eq!(tab.url, "void://newtab");
+        assert_eq!(mgr.list().len(), 1);
+        assert_eq!(mgr.active_id().as_deref(), Some(tab.id.as_str()));
+    }
+
+    #[test]
+    fn switch_and_close_tabs() {
+        let mut mgr = TabManager::new();
+        let a = mgr.create(None);
+        let b = mgr.create(Some("https://example.com".into()));
+        assert_eq!(mgr.active_id().as_deref(), Some(b.id.as_str()));
+        assert!(mgr.set_active(&a.id));
+        assert_eq!(mgr.active_id().as_deref(), Some(a.id.as_str()));
+        let next = mgr.close(&a.id);
+        assert_eq!(next.as_deref(), Some(b.id.as_str()));
+        assert_eq!(mgr.list().len(), 1);
+    }
+
+    #[test]
+    fn refuses_to_close_last_tab() {
+        let mut mgr = TabManager::new();
+        let tab = mgr.create(None);
+        assert!(mgr.close(&tab.id).is_none());
+        assert_eq!(mgr.list().len(), 1);
+    }
+}

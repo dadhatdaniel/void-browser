@@ -157,7 +157,19 @@ One-time manual fallback if the token is missing: that same Actions URL → **Ru
 
 **Updater signing:** set `TAURI_SIGNING_PRIVATE_KEY` (+ optional password) as secrets on GitHub Environment `release` so tag builds publish `latest.json` + `.sig` artifacts. Without it, installers still build; in-app updates stay unavailable.
 
-### Windows `.exe` smoke (manual)
+### Windows content-webview smoke (CI + local)
+
+GitHub Actions job **`smoke-windows`** runs after `build-windows`. It launches the bare `void-browser.exe` with `--smoke-test`, navigates to `https://example.com`, and asserts via `get_webview_info` that the content webview has non-empty bounds and that the chrome shell is chrome-height only (catches the black-screen / z-order regression). Release publish waits on this job.
+
+Locally (after `cargo tauri build`):
+
+```powershell
+.\scripts\smoke-browser.ps1 -ExePath "src-tauri\target\release\void-browser.exe"
+```
+
+Log: `%TEMP%\void-browser-smoke.log`
+
+### Windows installer smoke (manual)
 
 After a green **Build & Release** for a new tag:
 

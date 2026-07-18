@@ -8,6 +8,7 @@ mod browser;
 mod config;
 mod gpu;
 mod privacy;
+mod smoke;
 mod tabs;
 mod updater;
 
@@ -132,7 +133,11 @@ fn main() {
         .manage(BrowserState::default())
         .setup(|app| {
             browser::attach_resize_handler(app.handle())?;
-            updater::spawn_startup_check(app.handle().clone());
+            if smoke::requested() {
+                smoke::spawn(app.handle().clone());
+            } else {
+                updater::spawn_startup_check(app.handle().clone());
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -155,6 +160,7 @@ fn main() {
             browser::browser_reload,
             browser::browser_go_back,
             browser::browser_go_forward,
+            browser::get_webview_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Void Browser");

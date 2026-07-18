@@ -275,8 +275,15 @@ body {
 #content-area > .page.active { display: flex; }
 
 #webview-container {
-  background: var(--bg-primary);
+  /* Must stay transparent — native content webviews sit in this region.
+     An opaque fill was the visible "black screen" when the child was covered. */
+  background: transparent;
   pointer-events: none;
+}
+
+/* While browsing, shell webview is chrome-height only; hide HTML content panes. */
+body.browsing #content-area {
+  display: none;
 }
 
 #newtab-page {

@@ -113,6 +113,7 @@ async function reportChromeHeight() {
 
 async function hideContent() {
   browsingActive = false;
+  document.body.classList.remove('browsing');
   try {
     await invoke('hide_browser_content');
   } catch (_) { /* dev */ }
@@ -121,6 +122,7 @@ async function hideContent() {
 
 async function showContentFor(tabId) {
   browsingActive = true;
+  document.body.classList.add('browsing');
   try {
     await invoke('show_browser_content', { tabId });
   } catch (_) { /* dev */ }
@@ -298,6 +300,7 @@ async function navigate(raw) {
   urlBar.value = url;
   setSecurityIndicator(url);
   showPage('webview');
+  document.body.classList.add('browsing');
 
   try {
     await reportChromeHeight();
