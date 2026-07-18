@@ -99,14 +99,8 @@ pub fn spawn(app: AppHandle) {
 
             {
                 let browser = app.state::<BrowserState>();
-                let state = app.state::<AppState>();
-                if let Err(e) = browser::show_browser_content(
-                    tab_id.clone(),
-                    app.clone(),
-                    browser,
-                    state,
-                )
-                .await
+                if let Err(e) =
+                    browser::show_browser_content(tab_id.clone(), app.clone(), browser).await
                 {
                     smoke_log(&format!(
                         "show_browser_content attempt {attempt}: {e}"
