@@ -281,9 +281,15 @@ body {
   pointer-events: none;
 }
 
-/* While browsing, shell webview is chrome-height only; hide HTML content panes. */
+/* While browsing, shell HWND is chrome-height only. Collapse HTML panes without
+   display:none so we never depend on flex reflow for chrome sizing. */
 body.browsing #content-area {
-  display: none;
+  flex: 0 0 0;
+  height: 0;
+  min-height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 #newtab-page {

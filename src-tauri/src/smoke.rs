@@ -55,15 +55,13 @@ pub fn spawn(app: AppHandle) {
         let tab_id = {
             let Some(state) = app.try_state::<AppState>() else {
                 smoke_log("FAIL: AppState missing");
-                app.exit(1);
-                return;
+                std::process::exit(1);
             };
             let id = match state.tabs.lock() {
                 Ok(mut tabs) => tabs.create(Some(SMOKE_URL.to_string())).id,
                 Err(e) => {
                     smoke_log(&format!("FAIL: tabs lock: {e}"));
-                    app.exit(1);
-                    return;
+                    std::process::exit(1);
                 }
             };
             id
@@ -87,25 +85,44 @@ pub fn spawn(app: AppHandle) {
             Ok(()) => smoke_log("navigate_browser ok"),
             Err(e) => {
                 smoke_log(&format!("FAIL: navigate_browser: {e}"));
-                app.exit(1);
-                return;
+                std::process::exit(1);
             }
         }
 
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        // Give WebView2 time to paint; retry — some hosts drop the first IPC.
+        let mut info = None;
+        let mut last_err = String::new();
+        for attempt in 1..=8 {
+            tokio::time::sleep(Duration::from_millis(if attempt == 1 { 2500 } else { 750 })).await;
 
-        let info = {
-            let browser = app.state::<BrowserState>();
-            let state = app.state::<AppState>();
-            browser::get_webview_info(Some(tab_id.clone()), app.clone(), browser, state)
-        };
+            let label = format!("content-{tab_id}");
+            let present = app.get_webview(&label).is_some();
+            smoke_log(&format!(
+                "attempt {attempt}: content webview present={present}"
+            ));
+
+            let result = {
+                let browser = app.state::<BrowserState>();
+                let state = app.state::<AppState>();
+                browser::get_webview_info(Some(tab_id.clone()), app.clone(), browser, state)
+            };
+            match result {
+                Ok(i) => {
+                    info = Some(i);
+                    break;
+                }
+                Err(e) => {
+                    last_err = e;
+                    smoke_log(&format!("get_webview_info attempt {attempt}: {last_err}"));
+                }
+            }
+        }
 
         let info = match info {
-            Ok(i) => i,
-            Err(e) => {
-                smoke_log(&format!("FAIL: get_webview_info: {e}"));
-                app.exit(1);
-                return;
+            Some(i) => i,
+            None => {
+                smoke_log(&format!("FAIL: get_webview_info: {last_err}"));
+                std::process::exit(1);
             }
         };
 
@@ -125,43 +142,39 @@ pub fn spawn(app: AppHandle) {
 
         if !info.shell_browsing {
             smoke_log("FAIL: shell_browsing is false — chrome still covering content");
-            app.exit(1);
-            return;
+            std::process::exit(1);
         }
         if info.width < 100.0 || info.height < 100.0 {
             smoke_log(&format!(
                 "FAIL: content webview bounds too small: {}x{} (black-screen regression)",
                 info.width, info.height
             ));
-            app.exit(1);
-            return;
+            std::process::exit(1);
         }
         if info.y + 1.0 < info.chrome_height * 0.5 {
             smoke_log(&format!(
                 "FAIL: content y={} looks wrong vs chrome_height={}",
                 info.y, info.chrome_height
             ));
-            app.exit(1);
-            return;
+            std::process::exit(1);
         }
         if info.shell_height > info.chrome_height + 40.0 {
             smoke_log(&format!(
                 "FAIL: shell height {} still near full window (chrome_height={}) — cover risk",
                 info.shell_height, info.chrome_height
             ));
-            app.exit(1);
-            return;
+            std::process::exit(1);
         }
         if !info.url.contains("example.com") {
             smoke_log(&format!(
                 "FAIL: expected example.com in url, got '{}'",
                 info.url
             ));
-            app.exit(1);
-            return;
+            std::process::exit(1);
         }
 
         smoke_log("PASS: content webview visible with example.com");
-        app.exit(0);
+        // Use process::exit so Windows GUI subsystem reports a real exit code.
+        std::process::exit(0);
     });
 }

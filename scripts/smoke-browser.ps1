@@ -1,9 +1,10 @@
 # Void Browser — Windows smoke test
-# Launches the built exe with --smoke-test and fails on black-screen regressions.
+# Launches the built exe with --smoke-test and fails on blank-content regressions.
 #
 # Usage:
 #   .\scripts\smoke-browser.ps1
 #   .\scripts\smoke-browser.ps1 -ExePath "src-tauri\target\release\void-browser.exe"
+#   .\scripts\dev-windows.ps1 -Release -Smoke
 #
 # Exit codes: 0 pass, 1 fail, 2 exe missing / launch error
 
@@ -13,24 +14,32 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$Root = Resolve-Path (Join-Path $PSScriptRoot "..")
+Set-Location $Root
 
 function Find-VoidExe {
   param([string]$Hint)
-  if ($Hint -and (Test-Path -LiteralPath $Hint)) { return (Resolve-Path $Hint).Path }
+  if ($Hint -and (Test-Path -LiteralPath $Hint)) { return (Resolve-Path -LiteralPath $Hint).Path }
 
   $candidates = @(
-    "src-tauri\target\release\void-browser.exe",
-    "src-tauri\target\debug\void-browser.exe"
+    (Join-Path $Root "src-tauri\target\release\void-browser.exe"),
+    (Join-Path $Root "src-tauri\target\debug\void-browser.exe"),
+    (Join-Path $Root "src-tauri\target\release\bundle\nsis\*\void-browser.exe")
   )
   foreach ($c in $candidates) {
-    if (Test-Path -LiteralPath $c) { return (Resolve-Path $c).Path }
+    $resolved = Get-Item -Path $c -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($resolved) { return $resolved.FullName }
   }
   return $null
 }
 
 $exe = Find-VoidExe -Hint $ExePath
 if (-not $exe) {
-  Write-Error "void-browser.exe not found. Build first (cargo tauri build) or pass -ExePath."
+  Write-Host "void-browser.exe not found." -ForegroundColor Red
+  Write-Host "Build locally first:" -ForegroundColor Yellow
+  Write-Host "  .\scripts\dev-windows.ps1 -Release"
+  Write-Host "  cargo tauri build"
+  Write-Host "Or pass -ExePath to a built binary."
   exit 2
 }
 

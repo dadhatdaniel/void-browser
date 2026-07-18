@@ -104,8 +104,16 @@ function setSecurityIndicator(url) {
 }
 
 async function reportChromeHeight() {
-  if (!chromeEl) return;
-  const height = Math.ceil(chromeEl.getBoundingClientRect().height);
+  // Measure the fixed chrome strips only — never the flex-grown shell height.
+  // A full-window "chrome" value collapses the content webview to ~0px (white void).
+  const tabBar = document.getElementById('tab-bar');
+  const navBar = document.getElementById('nav-bar');
+  let height = 0;
+  if (tabBar) height += tabBar.getBoundingClientRect().height;
+  if (navBar) height += navBar.getBoundingClientRect().height;
+  if (!height && chromeEl) height = chromeEl.getBoundingClientRect().height;
+  height = Math.ceil(height || 78);
+  height = Math.min(160, Math.max(40, height));
   try {
     await invoke('set_chrome_height', { height });
   } catch (_) { /* dev */ }

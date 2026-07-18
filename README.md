@@ -79,7 +79,13 @@ shasum -a 256 --check CHECKSUMS.sha256  # macOS
 - Platform dependencies:
   - **Linux**: `libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev`
   - **macOS**: Xcode Command Line Tools
-  - **Windows**: WebView2 (pre-installed on Windows 10/11)
+  - **Windows**: VS Build Tools (C++/MSVC) + WebView2 (usually pre-installed on Windows 10/11)
+
+**Windows local loop (recommended before tagging releases):** see [`docs/LOCAL_WINDOWS_DEV.md`](docs/LOCAL_WINDOWS_DEV.md). Unraid/Docker is Linux-only and cannot QA the Windows GUI.
+
+```powershell
+.\scripts\dev-windows.ps1 -Release -Smoke
+```
 
 ### Build
 
