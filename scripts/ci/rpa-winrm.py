@@ -197,23 +197,27 @@ def build_wrapper(
             f"{release_tag}/void-browser.exe"
         )
         portable_line = f"$env:VOID_RPA_PORTABLE_URL = '{url}'\n"
-    # Single-quoted paths in the wrapper; remote_root uses backslashes.
+    # Never pass an empty -ExePath (argparse --exe with no value). Prefer letting
+    # DownloadInstall / dist discovery supply the binary.
     return f"""$ErrorActionPreference = 'Continue'
 $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')
 $env:PYTHONWARNINGS = 'ignore'
 {portable_line}Set-Location '{remote_root}'
 $exePath = Join-Path '{remote_root}' 'dist\\void-browser.exe'
-$exeArg = @()
-if (Test-Path $exePath) {{ $exeArg = @('-ExePath', $exePath) }}
+$extra = @()
+if ((Test-Path $exePath) -and ('{dl_flag}' -eq '')) {{
+  $extra += @('-ExePath', $exePath)
+}}
 $code = 1
 try {{
-  & '.\\scripts\\run-rpa-windows.ps1' @exeArg -Scenarios '{scenarios}' -LaunchWait {launch_wait} {dl_flag} *>&1 |
+  & '.\\scripts\\run-rpa-windows.ps1' @extra -Scenarios '{scenarios}' -LaunchWait {launch_wait} {dl_flag} *>&1 |
     Tee-Object -FilePath '{status_dir}\\run.log'
   $code = $LASTEXITCODE
 }} catch {{
   $_ | Out-String | Tee-Object -FilePath '{status_dir}\\run.log' -Append
   $code = 1
 }}
+if ($null -eq $code) {{ $code = 1 }}
 $latest = Get-ChildItem (Join-Path '{remote_root}' 'artifacts\\rpa') -Directory -ErrorAction SilentlyContinue |
   Sort-Object LastWriteTime -Descending | Select-Object -First 1
 @{{

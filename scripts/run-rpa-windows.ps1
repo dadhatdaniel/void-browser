@@ -119,25 +119,31 @@ if (-not $ExePath) {
   if (Test-Path $distExe) { $ExePath = $distExe }
 }
 
-$argsList = @(
-  (Join-Path $Root "tests\rpa\runner.py"),
-  "--scenarios", $Scenarios,
-  "--launch-wait", "$LaunchWait"
-)
-if ($ExePath) {
-  $argsList += @("--exe", $ExePath)
-}
-
+$runner = Join-Path $Root "tests\rpa\runner.py"
 Write-Host "Running RPA: $Scenarios" -ForegroundColor Cyan
 # Native stderr (warnings) must not abort under $ErrorActionPreference=Stop.
+# Avoid splatting an args array that contains '--exe' — Windows PowerShell 5.1
+# can drop the following value ("expected one argument").
 $prevEap = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
 try {
-  & $py @argsList 2>&1 | ForEach-Object {
-    if ($_ -is [System.Management.Automation.ErrorRecord]) {
-      Write-Host $_.ToString()
-    } else {
-      Write-Host $_
+  if ($ExePath) {
+    Write-Host "  exe: $ExePath"
+    & $py $runner --scenarios $Scenarios --launch-wait $LaunchWait --exe $ExePath 2>&1 | ForEach-Object {
+      if ($_ -is [System.Management.Automation.ErrorRecord]) {
+        Write-Host $_.ToString()
+      } else {
+        Write-Host $_
+      }
+    }
+  } else {
+    Write-Host "  exe: (harness default / download_install)"
+    & $py $runner --scenarios $Scenarios --launch-wait $LaunchWait 2>&1 | ForEach-Object {
+      if ($_ -is [System.Management.Automation.ErrorRecord]) {
+        Write-Host $_.ToString()
+      } else {
+        Write-Host $_
+      }
     }
   }
   $code = $LASTEXITCODE
