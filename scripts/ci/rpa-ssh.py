@@ -470,12 +470,38 @@ python3 -c "import json; print(json.dumps({{'exit_code': $code, 'finished_at': _
         print(f"  ... still running ({int(deadline - time.time())}s left)", flush=True)
 
     if not done_obj:
-        _c, o, _e = run(client, f"tail -n 80 {status!r}/run.log 2>/dev/null || true")
+        print(
+            f"[rpa-linux] timed out after {timeout_sec}s — aborting guest run + writing done.json",
+            flush=True,
+        )
+        abort = f"""
+set +e
+# Prefer exact names — do not pkill -f void-browser (matches ~/void-browser/ harness path)
+pkill -x void-browser 2>/dev/null || true
+pkill -f 'Void\\.Browser_.*\\.AppImage|/void-browser\\.AppImage|tests/rpa/runner_linux\\.py|run-rpa-linux\\.sh' 2>/dev/null || true
+latest=$(ls -1dt {remote_root!r}/artifacts/rpa/*/ 2>/dev/null | head -n1 || true)
+python3 -c "import json; print(json.dumps({{'exit_code':98,'finished_at':__import__('datetime').datetime.now().isoformat(),'aborted':True,'reason':'ci-wait-timeout','artifact_dir':('''$latest'''.rstrip('/') or None)}}))" > {status!r}/done.json
+cat {status!r}/done.json
+tail -n 80 {status!r}/run.log 2>/dev/null || true
+"""
+        _c, o, _e = run(client, abort, timeout=60)
         print("---- remote log (tail) ----")
         print(o)
-        raise TimeoutError(
-            f"Timed out after {timeout_sec}s waiting for Linux RPA done.json"
-        )
+        text = ""
+        for line in (o or "").splitlines():
+            if line.strip().startswith("{"):
+                text = line.strip()
+                break
+        if text:
+            try:
+                done_obj = json.loads(text)
+            except json.JSONDecodeError:
+                done_obj = None
+        if not done_obj:
+            raise TimeoutError(
+                f"Timed out after {timeout_sec}s waiting for Linux RPA done.json "
+                "(guest abort also failed)"
+            )
 
     print(
         f"[rpa-linux] exit_code={done_obj.get('exit_code')} "
