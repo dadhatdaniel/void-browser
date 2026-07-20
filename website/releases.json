@@ -1,28 +1,28 @@
 {
-  "tag": "v0.1.0-alpha.16",
-  "version": "0.1.0-alpha.16",
+  "tag": "v0.1.0-alpha.17",
+  "version": "0.1.0-alpha.17",
   "released": "2026-07-20",
-  "page": "https://github.com/dadhatdaniel/void-browser/releases/tag/v0.1.0-alpha.16",
+  "page": "https://github.com/dadhatdaniel/void-browser/releases/tag/v0.1.0-alpha.17",
   "latest_page": "https://github.com/dadhatdaniel/void-browser/releases/latest",
   "assets": {
     "linux_deb": {
-      "name": "Void.Browser_0.1.0-alpha.16_amd64.deb",
-      "url": "https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.16/Void.Browser_0.1.0-alpha.16_amd64.deb",
+      "name": "Void.Browser_0.1.0-alpha.17_amd64.deb",
+      "url": "https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.17/Void.Browser_0.1.0-alpha.17_amd64.deb",
       "size_label": "~7 MB"
     },
     "linux_appimage": {
-      "name": "Void.Browser_0.1.0-alpha.16_amd64.AppImage",
-      "url": "https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.16/Void.Browser_0.1.0-alpha.16_amd64.AppImage",
-      "size_label": "~88 MB"
+      "name": "Void.Browser_0.1.0-alpha.17_amd64.AppImage",
+      "url": "https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.17/Void.Browser_0.1.0-alpha.17_amd64.AppImage",
+      "size_label": "~93 MB"
     },
     "windows_exe": {
-      "name": "Void.Browser_0.1.0-alpha.16_x64-setup.exe",
-      "url": "https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.16/Void.Browser_0.1.0-alpha.16_x64-setup.exe",
+      "name": "Void.Browser_0.1.0-alpha.17_x64-setup.exe",
+      "url": "https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.17/Void.Browser_0.1.0-alpha.17_x64-setup.exe",
       "size_label": "~4 MB"
     },
     "macos_dmg": {
-      "name": "Void.Browser_0.1.0-alpha.16_aarch64.dmg",
-      "url": "https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.16/Void.Browser_0.1.0-alpha.16_aarch64.dmg",
+      "name": "Void.Browser_0.1.0-alpha.17_aarch64.dmg",
+      "url": "https://github.com/dadhatdaniel/void-browser/releases/download/v0.1.0-alpha.17/Void.Browser_0.1.0-alpha.17_aarch64.dmg",
       "size_label": "~6 MB"
     }
   }
