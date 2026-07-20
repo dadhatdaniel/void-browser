@@ -224,7 +224,7 @@ Job: `rpa-windows` in `.gitlab-ci.yml` → `scripts/ci/rpa-winrm.py`.
 |-------|----------|
 | Pipeline var `RPA_AFTER_RELEASE=1` | Auto after GitHub release sync; waits for GitHub assets; full suite + `auto_update` |
 | Manual play on `main` / `v*` | Same job, no new tag needed |
-| `main` push | `sync-rpa-win-repo` refreshes `C:\void-browser` on the VM |
+| `main` push | `sync-rpa-win-repo` (stage `sync`, before `rpa`) refreshes `C:\void-browser` |
 
 Artifacts: full PNGs + `report.json` mirror to `/mnt/user/appdata/void-rpa-artifacts/<stamp>/` (runner share mount). GitLab job artifact upload is disabled on this instance (coordinator 500). Optional local JPEG pack: `python3 scripts/ci/prepare-rpa-upload.py`.
 
@@ -239,6 +239,7 @@ Guest: `void-test-linux` / `rpa-linux` @ **`10.0.1.114`**. VNC diagnose: `http:/
 | Pipeline var `RPA_AFTER_RELEASE=1` | Auto after GitHub release sync; full Linux suite |
 | `website/releases.json` change on `main` | Auto (same rule as `rpa-windows`) |
 | Manual play on `main` / `v*` | Same job |
+| `main` push | `sync-rpa-linux-repo` (stage `sync`, before `rpa`) refreshes `/home/rpa-linux/void-browser` |
 
 Default scenarios (Windows-parity names):
 `download_install,app_launch,smoke_navigate,nav_history,visit_void_site,settings_preserves_tab,new_tab,youtube_signin_page,context_menu,auto_update`

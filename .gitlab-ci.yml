@@ -11,7 +11,8 @@
 # AUTO vs MANUAL (who clicks Play):
 #   AUTO on main push:
 #     rustfmt, clippy, cargo-audit, license-check, app-security,
-#     site-security, site-e2e, sync-rpa-win-repo
+#     site-security, site-e2e,
+#     sync-rpa-win-repo, sync-rpa-linux-repo
 #     deploy-site          — only when website/** changed
 #     rpa-windows, rpa-linux — only when website/releases.json changed
 #   AUTO on MR:
@@ -21,7 +22,8 @@
 #   AUTO on schedule / API (SYNC_RELEASES=1):
 #     sync-releases-from-github
 #   AUTO on API (RPA_AFTER_RELEASE=1):
-#     rpa-windows + rpa-linux only (all other jobs skipped)
+#     rpa-windows + rpa-linux only (all other jobs skipped;
+#     VM sync jobs are skipped — rpa-* still --sync-repo themselves)
 #   MANUAL (Play required):
 #     virus-scan           — main + tags (never auto; binary VT)
 #     deploy-site          — main when website/** did NOT change
@@ -33,6 +35,11 @@
 #
 # CRITICAL: site-e2e must NOT use needs:[] — that raced ahead of deploy-site
 # and hit the live :5080 origin before the new site was deployed.
+#
+# CRITICAL: sync-rpa-*-repo live in stage `sync` (before `rpa`). rpa-windows /
+# rpa-linux need their sync job (optional) so VMs get latest code first.
+# Do NOT put sync-rpa-* in `notify` after rpa, and do NOT leave rpa with
+# needs:[] alone — that raced sync and left VMs stale during RPA.
 # ═══════════════════════════════════════════════════
 
 stages:
@@ -484,7 +491,11 @@ virus-scan:
 rpa-windows:
   stage: rpa
   image: python:3.12-slim
-  needs: []
+  # Wait for VM git sync when present; optional so RPA_AFTER_RELEASE=1
+  # (sync jobs skipped) still starts immediately. Sync has allow_failure.
+  needs:
+    - job: sync-rpa-win-repo
+      optional: true
   timeout: 2h
   allow_failure: true
   resource_group: void-rpa-win
@@ -572,7 +583,11 @@ rpa-windows:
 rpa-linux:
   stage: rpa
   image: python:3.12-slim
-  needs: []
+  # Wait for VM git sync when present; optional so RPA_AFTER_RELEASE=1
+  # (sync jobs skipped) still starts immediately. Sync has allow_failure.
+  needs:
+    - job: sync-rpa-linux-repo
+      optional: true
   timeout: 2h
   allow_failure: true
   resource_group: void-rpa-linux
@@ -636,9 +651,12 @@ rpa-linux:
       when: manual
       allow_failure: true
 
-# Keep rpa-win git tree fresh on every main push (harness + docs).
+# Keep RPA VM git trees fresh on every main push (harness + docs).
+# Stage `sync` is before `rpa`. needs:[] starts ASAP (do not wait for lint).
+# rpa-windows / rpa-linux optionally need these so they do not race ahead.
+
 sync-rpa-win-repo:
-  stage: notify
+  stage: sync
   image: python:3.12-slim
   needs: []
   allow_failure: true
@@ -655,5 +673,26 @@ sync-rpa-win-repo:
         exit 0
       fi
       python3 scripts/ci/rpa-winrm.py --sync-repo-only
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" && $RPA_AFTER_RELEASE != "1"
+
+sync-rpa-linux-repo:
+  stage: sync
+  image: python:3.12-slim
+  needs: []
+  allow_failure: true
+  variables:
+    VOID_RPA_LINUX_HOST: "10.0.1.114"
+    VOID_RPA_LINUX_USER: "rpa-linux"
+  before_script:
+    - pip install --no-cache-dir paramiko
+  script:
+    - |
+      set -eu
+      if [ -z "${VOID_RPA_LINUX_PASS:-}" ]; then
+        echo "VOID_RPA_LINUX_PASS not set — skip VM sync"
+        exit 0
+      fi
+      python3 scripts/ci/rpa-ssh.py --sync-repo-only
   rules:
     - if: $CI_COMMIT_BRANCH == "main" && $RPA_AFTER_RELEASE != "1"
