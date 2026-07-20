@@ -23,6 +23,76 @@ $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $Root
 
+# Exercise NSIS silent install during download_install (teardown uninstalls after).
+# Set VOID_RPA_SKIP_NSIS=1 to keep portable-only.
+if (-not $env:VOID_RPA_SKIP_NSIS -and -not $env:VOID_RPA_RUN_NSIS) {
+  $env:VOID_RPA_RUN_NSIS = "1"
+}
+
+function Uninstall-VoidBrowserIdempotent {
+  <#
+  .SYNOPSIS
+    Belt-and-suspenders cleanup after the Python harness (idempotent).
+  #>
+  Write-Host "-- teardown Uninstall-VoidBrowser (PowerShell) --" -ForegroundColor Cyan
+  Get-Process -Name "void-browser" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+  Start-Sleep -Seconds 1
+
+  $cmds = @()
+  $uninstallRoots = @(
+    "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
+    "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
+    "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+  )
+  foreach ($root in $uninstallRoots) {
+    Get-ItemProperty $root -ErrorAction SilentlyContinue | Where-Object {
+      $_.DisplayName -and ($_.DisplayName -like "*Void Browser*")
+    } | ForEach-Object {
+      $c = $_.QuietUninstallString
+      if (-not $c) { $c = $_.UninstallString }
+      if ($c) { $cmds += [string]$c }
+    }
+  }
+
+  if ($cmds.Count -eq 0) {
+    $candidates = @(
+      (Join-Path $env:LOCALAPPDATA "Void Browser\uninstall.exe"),
+      (Join-Path ${env:ProgramFiles} "Void Browser\uninstall.exe"),
+      (Join-Path ${env:ProgramFiles(x86)} "Void Browser\uninstall.exe")
+    )
+    foreach ($u in $candidates) {
+      if (Test-Path $u) { $cmds += "`"$u`" /S" }
+    }
+  }
+
+  if ($cmds.Count -eq 0) {
+    Write-Host "  PASS: not installed (no Uninstall keys)" -ForegroundColor Green
+    return
+  }
+
+  foreach ($raw in ($cmds | Select-Object -Unique)) {
+    $cmd = $raw
+    if ($cmd -notmatch '(?i)/S|/quiet') { $cmd = "$cmd /S" }
+    Write-Host "  Running: $cmd"
+    try {
+      cmd.exe /c $cmd | Out-Null
+    } catch {
+      Write-Warning "  uninstall attempt: $_"
+    }
+  }
+  Start-Sleep -Seconds 2
+  $left = @(
+    (Join-Path $env:LOCALAPPDATA "Void Browser\void-browser.exe"),
+    (Join-Path ${env:ProgramFiles} "Void Browser\void-browser.exe"),
+    (Join-Path ${env:ProgramFiles(x86)} "Void Browser\void-browser.exe")
+  ) | Where-Object { Test-Path $_ }
+  if ($left) {
+    Write-Warning ("  FAIL: leftover install exe: " + ($left -join ", "))
+  } else {
+    Write-Host "  PASS: verified clean" -ForegroundColor Green
+  }
+}
+
 if ($SmokeOnly) {
   $Scenarios = "app_launch,smoke_navigate"
 }
@@ -171,6 +241,14 @@ if ($latest) {
     } catch { }
   }
   Get-ChildItem $latest.FullName -Filter "*.png" | ForEach-Object { Write-Host "  PNG $($_.Name)" }
+  try {
+    $r = Get-Content (Join-Path $latest.FullName "report.json") -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+    if ($r.meta.teardown_uninstall) {
+      Write-Host ("Teardown uninstall ok={0}: {1}" -f $r.meta.teardown_uninstall.ok, $r.meta.teardown_uninstall.detail)
+    }
+  } catch { }
 }
+
+Uninstall-VoidBrowserIdempotent
 
 exit $code

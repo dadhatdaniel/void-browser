@@ -775,13 +775,16 @@ def scenario_download_install(s: RpaSession) -> ScenarioResult:
         else:
             steps.append(Step("stage_download_exe", False, "portable download missing", None))
 
-        # Optional silent NSIS install (off by default — prefer portable for RPA).
-        # Enable with VOID_RPA_RUN_NSIS=1 after Void is not locking install dirs.
-        if (
-            setup_ok
-            and setup_path.is_file()
-            and os.environ.get("VOID_RPA_RUN_NSIS", "").strip() == "1"
-        ):
+        # Optional silent NSIS install. Default ON so release RPA exercises install+uninstall;
+        # set VOID_RPA_SKIP_NSIS=1 to skip (portable still used for functional tests).
+        run_nsis = (
+            os.environ.get("VOID_RPA_RUN_NSIS", "").strip() == "1"
+            or (
+                os.environ.get("VOID_RPA_SKIP_NSIS", "").strip() != "1"
+                and os.environ.get("VOID_RPA_RUN_NSIS", "").strip() == ""
+            )
+        )
+        if setup_ok and setup_path.is_file() and run_nsis:
             try:
                 proc = subprocess.run(
                     [str(setup_path), "/S"],
@@ -791,12 +794,7 @@ def scenario_download_install(s: RpaSession) -> ScenarioResult:
                     check=False,
                 )
                 installed = None
-                for cand in (
-                    Path(os.environ.get("LOCALAPPDATA", "")) / "Void Browser" / "void-browser.exe",
-                    Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
-                    / "Void Browser"
-                    / "void-browser.exe",
-                ):
+                for cand in VOID_INSTALL_CANDIDATES:
                     if cand.is_file():
                         installed = cand
                         break
@@ -815,7 +813,7 @@ def scenario_download_install(s: RpaSession) -> ScenarioResult:
                 Step(
                     "silent_nsis_install",
                     True,
-                    "skipped (set VOID_RPA_RUN_NSIS=1 to run NSIS /S; portable used for tests)",
+                    "skipped (VOID_RPA_SKIP_NSIS=1 or NSIS disabled; portable used for tests)",
                     None,
                 )
             )
@@ -1519,6 +1517,175 @@ DEFAULT_SCENARIOS = (
     "settings_preserves_tab,new_tab,youtube_signin_page,context_menu,auto_update"
 )
 
+VOID_DISPLAY_NAME = "void browser"
+VOID_INSTALL_CANDIDATES = (
+    Path(os.environ.get("LOCALAPPDATA", "")) / "Void Browser" / "void-browser.exe",
+    Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Void Browser" / "void-browser.exe",
+    Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"))
+    / "Void Browser"
+    / "void-browser.exe",
+)
+
+
+def kill_void_browser_processes() -> str:
+    """Force-stop Void Browser processes. Idempotent."""
+    if sys.platform != "win32":
+        return "skipped (not win32)"
+    try:
+        proc = subprocess.run(
+            ["taskkill", "/F", "/IM", "void-browser.exe", "/T"],
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        # 128 = process not found — treat as OK
+        if proc.returncode in (0, 128):
+            out = (proc.stdout or proc.stderr or "").strip() or f"exit={proc.returncode}"
+            return out
+        return f"taskkill exit={proc.returncode}: {(proc.stderr or proc.stdout or '').strip()}"
+    except Exception as e:  # noqa: BLE001
+        return f"taskkill error: {e}"
+
+
+def _void_uninstall_registry_commands() -> list[tuple[str, str]]:
+    """Collect QuietUninstallString / UninstallString for Void Browser from Uninstall keys."""
+    if sys.platform != "win32":
+        return []
+    import winreg
+
+    found: list[tuple[str, str]] = []
+    roots: list[tuple[int, str]] = [
+        (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (
+            winreg.HKEY_LOCAL_MACHINE,
+            r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+        ),
+    ]
+    for hive, path in roots:
+        try:
+            key = winreg.OpenKey(hive, path)
+        except OSError:
+            continue
+        i = 0
+        while True:
+            try:
+                sub_name = winreg.EnumKey(key, i)
+                i += 1
+            except OSError:
+                break
+            try:
+                sub = winreg.OpenKey(key, sub_name)
+            except OSError:
+                continue
+            try:
+                display, _ = winreg.QueryValueEx(sub, "DisplayName")
+            except OSError:
+                continue
+            if VOID_DISPLAY_NAME not in str(display).lower():
+                continue
+            quiet = ""
+            uninst = ""
+            try:
+                quiet, _ = winreg.QueryValueEx(sub, "QuietUninstallString")
+            except OSError:
+                pass
+            try:
+                uninst, _ = winreg.QueryValueEx(sub, "UninstallString")
+            except OSError:
+                pass
+            cmd = str(quiet or uninst or "").strip()
+            if cmd:
+                found.append((str(display), cmd))
+    return found
+
+
+def _normalize_silent_uninstall_cmd(cmd: str) -> str:
+    """Ensure NSIS uninstall runs silently when only UninstallString is present."""
+    c = cmd.strip()
+    low = c.lower()
+    if "/s" in low or "/quiet" in low or "--uninstall" in low:
+        return c
+    # NSIS uninstall.exe typically accepts /S
+    if "uninstall" in low:
+        return f"{c} /S"
+    return f"{c} /S"
+
+
+def _installed_void_exe_paths() -> list[str]:
+    return [str(p) for p in VOID_INSTALL_CANDIDATES if p.is_file()]
+
+
+def uninstall_void_browser() -> dict[str, Any]:
+    """
+    Always-run teardown: stop Void Browser and uninstall any NSIS/MSI copy.
+
+    Idempotent — already uninstalled is OK (ok=True).
+    Does not delete portable dist\\ or downloads\\ copies used by the harness.
+    """
+    detail_parts: list[str] = []
+    ok = True
+
+    kill_detail = kill_void_browser_processes()
+    detail_parts.append(f"kill: {kill_detail}")
+    time.sleep(1.0)
+
+    cmds = _void_uninstall_registry_commands()
+    if not cmds:
+        leftovers = _installed_void_exe_paths()
+        if leftovers:
+            # Registry missing but files present — try uninstall.exe next to them.
+            for exe_path in leftovers:
+                uninstaller = Path(exe_path).parent / "uninstall.exe"
+                if uninstaller.is_file():
+                    cmds.append(("Void Browser (path)", f'"{uninstaller}" /S'))
+            if not cmds:
+                detail_parts.append(f"no Uninstall key; leftover files: {leftovers}")
+                # Best-effort: remove install dir contents is risky; report soft fail.
+                ok = False
+        else:
+            detail_parts.append("not installed (no Uninstall key, no install-dir exe)")
+            return {"ok": True, "detail": "; ".join(detail_parts), "commands": []}
+
+    ran: list[str] = []
+    for display, raw_cmd in cmds:
+        cmd = _normalize_silent_uninstall_cmd(raw_cmd)
+        ran.append(cmd)
+        try:
+            proc = subprocess.run(
+                cmd,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=180,
+                check=False,
+            )
+            detail_parts.append(
+                f"uninstall {display!r} exit={proc.returncode}"
+                + (f" err={(proc.stderr or '').strip()}" if proc.returncode not in (0, 1) else "")
+            )
+            # NSIS often returns 0; some return 1 if already gone — still check leftovers.
+            if proc.returncode not in (0, 1):
+                ok = False
+        except Exception as e:  # noqa: BLE001
+            ok = False
+            detail_parts.append(f"uninstall {display!r} error: {e}")
+
+    time.sleep(1.5)
+    leftovers = _installed_void_exe_paths()
+    # Re-check registry — success if no Void Uninstall entries and no install-dir exe.
+    still_reg = _void_uninstall_registry_commands()
+    if leftovers or still_reg:
+        ok = False
+        detail_parts.append(
+            f"leftover exe={leftovers or 'none'}; leftover registry={[n for n, _ in still_reg] or 'none'}"
+        )
+    else:
+        detail_parts.append("verified clean (no install-dir exe / Uninstall keys)")
+
+    return {"ok": ok, "detail": "; ".join(detail_parts), "commands": ran}
+
 
 def write_report(out_dir: Path, exe: Path, results: list[ScenarioResult], meta: dict[str, Any]) -> Path:
     report = {
@@ -1547,6 +1714,7 @@ def write_report(out_dir: Path, exe: Path, results: list[ScenarioResult], meta: 
             "settings_preserves_tab: confirm the site content returns after Esc/Done.",
             "youtube_signin_page: confirm Google sign-in UI is visible (not a Void block page).",
             "auto_update: fail if latest.json 404/wrong URLs; expect Update available dialog from older build.",
+            "teardown: uninstall_void_browser always runs; VM must not keep NSIS/MSI Void Browser installed.",
         ],
     }
     path = out_dir / "report.json"
@@ -1606,6 +1774,7 @@ def main() -> int:
     session: Optional[RpaSession] = None
     current_exe = exe
     exit_code = 1
+    teardown: dict[str, Any] = {"ok": True, "detail": "not run", "commands": []}
 
     try:
         # If we have no exe, synthesize download-only path first.
@@ -1714,6 +1883,15 @@ def main() -> int:
                 session.stop()
             except Exception:  # noqa: BLE001
                 pass
+        # Always-run cleanup: uninstall NSIS/MSI Void Browser so the VM stays clean.
+        try:
+            print("-- teardown uninstall_void_browser --", flush=True)
+            teardown = uninstall_void_browser()
+            status = "PASS" if teardown.get("ok") else "FAIL"
+            print(f"  {status}: {teardown.get('detail', '')}", flush=True)
+        except Exception as e:  # noqa: BLE001
+            teardown = {"ok": False, "detail": str(e), "commands": []}
+            print(f"  FAIL: teardown uninstall error: {e}", flush=True)
         try:
             report_path = write_report(
                 out_dir,
@@ -1726,6 +1904,7 @@ def main() -> int:
                         n.strip() for n in args.scenarios.split(",") if n.strip()
                     ],
                     "download_dir": str(DEFAULT_DOWNLOAD_DIR),
+                    "teardown_uninstall": teardown,
                 },
             )
             print(f"Report: {report_path}", flush=True)

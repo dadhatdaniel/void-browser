@@ -117,7 +117,7 @@ What it does:
 
 | Name | What it checks |
 |------|----------------|
-| `download_install` | Fetch `releases.json` from LAN `:5080`, download portable `void-browser.exe` + Windows setup from GitHub URLs, screenshot download folder, stage into `dist\`, optional NSIS `/S`, require alpha.16+ |
+| `download_install` | Fetch `releases.json` from LAN `:5080`, download portable `void-browser.exe` + Windows setup from GitHub URLs, screenshot download folder, stage into `dist\`, silent NSIS `/S` (skip with `VOID_RPA_SKIP_NSIS=1`), require alpha.16+ |
 | `app_launch` | Process alive, window ≥640×480, chrome/content not blank/white |
 | `smoke_navigate` | example.com + duckduckgo; **fail hard** if content area is blank/white |
 | `nav_history` | Address-bar nav, Alt+Left back, Alt+Right forward, F5 reload; blank fail |
@@ -128,7 +128,7 @@ What it does:
 | `context_menu` | URL bar clipboard Ctrl+C / Ctrl+V |
 | `auto_update` | Fetch GitHub `latest.json` (**fail on 404 / wrong URLs**); stage older portable (default `v0.1.0-alpha.15`); launch → startup quiet check and/or Settings **Check for updates**; assert **Update available** dialog; screenshot; dismiss **Later** (does not install) |
 
-Default suite runs **all** of the above (in that order). After `download_install`, the harness relaunches on the staged build. `auto_update` runs last so it can temporarily switch to an older build, then restores the previous exe.
+Default suite runs **all** of the above (in that order). After `download_install`, the harness relaunches on the staged build. `auto_update` runs last so it can temporarily switch to an older build, then restores the previous exe. **Teardown** always runs `uninstall_void_browser` (registry QuietUninstall/`/S`) so the VM does not keep Void Browser installed — even if scenarios fail.
 
 ### `auto_update` details
 
@@ -150,9 +150,10 @@ Overrides:
 ### Download notes
 
 - LAN nginx at `:5080` serves `releases.json` with GitHub asset URLs. Direct paths like `/releases/*.exe` on the LAN host may SPA-fallback to HTML — the harness rejects HTML downloads and uses GitHub.
-- Portable `void-browser.exe` is preferred for functional tests; NSIS setup is also fetched and optionally installed with `/S`.
+- Portable `void-browser.exe` is preferred for functional tests; NSIS setup is also fetched and installed with `/S` by default (set `VOID_RPA_SKIP_NSIS=1` to skip).
+- Always-run teardown uninstalls any NSIS/MSI Void Browser via Uninstall registry keys (idempotent if already gone).
 - Override URLs with `VOID_RPA_PORTABLE_URL` / `VOID_RPA_SETUP_URL` / `VOID_RELEASES_JSON_URL` if needed.
-- Set `VOID_RPA_RUN_NSIS=1` to also run the downloaded setup with `/S` (portable is preferred for functional tests).
+- Set `VOID_RPA_RUN_NSIS=1` explicitly if needed; `VOID_RPA_SKIP_NSIS=1` forces portable-only.
 
 `visit_void_site` dogfoods the marketing site inside Void Browser itself.
 

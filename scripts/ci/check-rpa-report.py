@@ -17,7 +17,13 @@ def main() -> int:
     for sc in data.get("scenarios") or []:
         mark = "PASS" if sc.get("ok") else "FAIL"
         print(mark, sc.get("name"), f"({sc.get('duration_sec')}s)")
-    return 0 if data.get("ok") else 1
+    teardown = (data.get("meta") or {}).get("teardown_uninstall") or {}
+    if teardown:
+        tmark = "PASS" if teardown.get("ok") else "FAIL"
+        print(tmark, "teardown_uninstall", teardown.get("detail", ""))
+    scenarios_ok = bool(data.get("ok"))
+    teardown_ok = True if not teardown else bool(teardown.get("ok"))
+    return 0 if scenarios_ok and teardown_ok else 1
 
 
 if __name__ == "__main__":
