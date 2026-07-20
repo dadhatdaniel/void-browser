@@ -1576,7 +1576,7 @@ def main() -> int:
         print(f"Unknown scenarios: {unknown}. Known: {list(SCENARIOS)}", file=sys.stderr)
         return 2
 
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     out_dir = Path(args.out) if args.out else DEFAULT_ARTIFACTS / stamp
     out_dir.mkdir(parents=True, exist_ok=True)
 
