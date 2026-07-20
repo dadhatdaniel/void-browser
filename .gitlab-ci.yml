@@ -295,9 +295,7 @@ rpa-windows:
       fi
       echo "Artifacts: $latest"
       test -f "${latest}report.json"
-      python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print('ok=',d.get('ok'));
-[print(('PASS' if s.get('ok') else 'FAIL'), s.get('name')) for s in d.get('scenarios') or []];
-sys.exit(0 if d.get('ok') else 1)" "${latest}report.json"
+      python3 scripts/ci/check-rpa-report.py "${latest}report.json"
   artifacts:
     when: always
     paths:
