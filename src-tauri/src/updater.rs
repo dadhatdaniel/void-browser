@@ -31,8 +31,25 @@ pub struct UpdateCheckResult {
     pub message: String,
 }
 
+/// True when startup (and optional CLI) update checks should be skipped.
+///
+/// RPA sets `VOID_DISABLE_UPDATER=1` for functional scenarios so the quiet
+/// launch prompt cannot block UI Automation. Manual Settings → Check for
+/// updates still works unless the process was started with this flag *and*
+/// callers skip invoking `check_for_updates` (auto_update clears the env).
+pub fn updater_disabled() -> bool {
+    if std::env::var_os("VOID_DISABLE_UPDATER").is_some() {
+        return true;
+    }
+    std::env::args().any(|a| a == "--disable-updater")
+}
+
 /// Quiet startup check: prompt only when an update exists.
 pub fn spawn_startup_check<R: Runtime>(app: AppHandle<R>) {
+    if updater_disabled() {
+        eprintln!("[void] startup update check disabled (VOID_DISABLE_UPDATER / --disable-updater)");
+        return;
+    }
     tauri::async_runtime::spawn(async move {
         // Let the main window paint before any dialog.
         tokio::time::sleep(std::time::Duration::from_secs(4)).await;
@@ -45,6 +62,9 @@ pub fn spawn_startup_check<R: Runtime>(app: AppHandle<R>) {
 /// Settings / manual check. Shows a dialog when already up to date.
 #[tauri::command]
 pub async fn check_for_updates<R: Runtime>(app: AppHandle<R>) -> Result<UpdateCheckResult, String> {
+    // Manual check remains available even when VOID_DISABLE_UPDATER is set so
+    // RPA auto_update can still exercise Settings → Check for updates on builds
+    // that honor the env for startup only. Startup is gated in spawn_startup_check.
     check_and_prompt(app, true).await
 }
 

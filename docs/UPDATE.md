@@ -17,7 +17,7 @@ No analytics, crash reporting, or other “phone home” — just HTTPS to that 
 1. **Build & Release** (GitHub Actions on tag `v*`) builds installers with `createUpdaterArtifacts: true` when the signing secret is present.
 2. When `TAURI_SIGNING_PRIVATE_KEY` is set on the **`release`** environment, Tauri produces `.sig` files next to updater bundles (AppImage / NSIS / `.app.tar.gz`).
 3. The release job (tags only) runs `scripts/generate-updater-manifest.sh` and uploads `latest.json` to the GitHub Release.
-4. On launch (quiet) and via **Settings → Check for updates**, the app fetches `latest.json`, compares SemVer, shows version + notes, and offers **Install & Relaunch**.
+4. On launch (quiet) and via **Settings → Check for updates**, the app fetches `latest.json`, compares SemVer, shows version + notes, and offers **Install & Relaunch**. Set `VOID_DISABLE_UPDATER=1` or pass `--disable-updater` to skip the quiet startup check (Settings check still works; used by RPA for non-`auto_update` runs).
 5. The downloaded artifact is verified with the **public key** (pinned in config + Rust) before install. There is no disable-verify path in production builds.
 
 Source of truth for git remains **GitLab** (`lightfootcloud/void-browser`). Push tags to GitLab; the mirror syncs refs, and GitLab CI `trigger-github-build` dispatches Actions (`workflow_dispatch`) because mirror-only often skips tag `PushEvent`s. Set GitLab CI variable `GITHUB_TOKEN` (classic `repo`+`workflow`).

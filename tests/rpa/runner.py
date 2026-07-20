@@ -28,6 +28,8 @@ import traceback
 import urllib.error
 import urllib.request
 import warnings
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -78,6 +80,14 @@ class ScenarioResult:
     new_exe: Optional[str] = None
 
 
+# Env honored by Void builds that include updater::updater_disabled() (alpha.18+).
+# Older release binaries ignore it; dismiss_update_* remains the fallback.
+VOID_DISABLE_UPDATER_ENV = "VOID_DISABLE_UPDATER"
+
+# Hard cap so a modal / UIA stall cannot wedge the suite until the CI 30m timeout.
+DEFAULT_SCENARIO_TIMEOUT_SEC = float(os.environ.get("VOID_RPA_SCENARIO_TIMEOUT", "180"))
+
+
 class RpaSession:
     def __init__(self, exe: Path, out_dir: Path, launch_wait: float = 4.0):
         self.exe = exe
@@ -91,33 +101,65 @@ class RpaSession:
         # so functional scenarios are not blocked. auto_update sets False so it can
         # assert and accept the prompt itself.
         self.dismiss_update_on_launch = True
+        # When True (default), launch with VOID_DISABLE_UPDATER=1 so builds that
+        # honor it skip the quiet startup check entirely. auto_update clears this.
+        self.disable_updater = True
 
-    def start(self, *, dismiss_update: Optional[bool] = None) -> None:
+    def _launch_env(self, *, enable_updater: bool) -> dict[str, str]:
+        env = os.environ.copy()
+        if enable_updater:
+            env.pop(VOID_DISABLE_UPDATER_ENV, None)
+        else:
+            env[VOID_DISABLE_UPDATER_ENV] = "1"
+        return env
+
+    def start(
+        self,
+        *,
+        dismiss_update: Optional[bool] = None,
+        enable_updater: Optional[bool] = None,
+    ) -> None:
         self.out_dir.mkdir(parents=True, exist_ok=True)
         creationflags = 0
         if sys.platform == "win32":
             creationflags = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+        do_enable = (
+            (not self.disable_updater)
+            if enable_updater is None
+            else enable_updater
+        )
         self.proc = subprocess.Popen(
             [str(self.exe)],
             cwd=str(self.exe.parent),
             creationflags=creationflags,
+            env=self._launch_env(enable_updater=do_enable),
         )
         time.sleep(self.launch_wait)
         self._connect()
         do_dismiss = self.dismiss_update_on_launch if dismiss_update is None else dismiss_update
         if do_dismiss:
-            # Quiet update check fires ~4s after launch; give it a short window.
-            detail = dismiss_update_dialog_if_present(timeout=3.0)
+            # Quiet check fires ~4s after launch + network; cover the race even when
+            # VOID_DISABLE_UPDATER is ignored by older release binaries.
+            detail = dismiss_update_dialogs_until_clear(
+                settle_sec=max(6.0, self.launch_wait + 3.0),
+                hard_timeout=12.0,
+            )
             if detail != "absent":
                 print(f"  update prompt after launch: {detail}", flush=True)
 
-    def restart(self, exe: Optional[Path] = None, *, dismiss_update: Optional[bool] = None) -> None:
+    def restart(
+        self,
+        exe: Optional[Path] = None,
+        *,
+        dismiss_update: Optional[bool] = None,
+        enable_updater: Optional[bool] = None,
+    ) -> None:
         """Stop current process and launch exe (or same path)."""
         self.stop()
         time.sleep(1.0)
         if exe is not None:
             self.exe = exe
-        self.start(dismiss_update=dismiss_update)
+        self.start(dismiss_update=dismiss_update, enable_updater=enable_updater)
 
     def _connect(self) -> None:
         from pywinauto import Application
@@ -443,29 +485,59 @@ def resolve_older_portable_url(latest_version: str) -> tuple[str, str]:
     )
 
 
+def _norm_btn_label(s: str) -> str:
+    return (
+        (s or "")
+        .lower()
+        .replace("&", "")
+        .replace("  ", " ")
+        .replace(" and ", " ")
+        .strip()
+    )
+
+
 def find_update_dialog(timeout: float = 12.0):
-    """Best-effort find native 'Update available' / Void Browser dialog."""
+    """Best-effort find native 'Update available' dialog (not the main Void window)."""
     from pywinauto import Desktop
 
     desktop = Desktop(backend="uia")
     deadline = time.time() + timeout
     last_err: Optional[Exception] = None
     while time.time() < deadline:
+        # Prefer exact update dialog titles — avoid matching the main browser window.
         for title_re in (
-            ".*Update available.*",
-            ".*Void Browser.*",
-            ".*update.*",
+            r".*Update available.*",
+            r"^Update$",
+            r".*update available.*",
         ):
             try:
                 win = desktop.window(title_re=title_re)
-                if win.exists(timeout=0.4):
+                if win.exists(timeout=0.35):
                     text = (win.window_text() or "").lower()
-                    # Prefer the update prompt; allow generic Void info dialogs too.
-                    if "update" in text or "available" in text or "latest version" in text:
+                    if "update" in text or "available" in text:
                         return win
             except Exception as e:  # noqa: BLE001
                 last_err = e
-        time.sleep(0.4)
+        # Fallback: any top-level window whose title looks like the updater prompt.
+        try:
+            for win in desktop.windows():
+                try:
+                    text = (win.window_text() or "").strip()
+                    low = text.lower()
+                    if not text:
+                        continue
+                    if "update available" in low or (
+                        low.startswith("update") and "available" in low
+                    ):
+                        return win
+                    # Dialog body may live in children while title is generic.
+                    if "void" in low and ("update" in low or "available" in low):
+                        return win
+                except Exception:  # noqa: BLE001
+                    continue
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+        time.sleep(0.35)
     if last_err:
         return None
     return None
@@ -484,14 +556,21 @@ def _click_dialog_button(dlg, titles: tuple[str, ...]) -> Optional[str]:
                 return title
         except Exception:  # noqa: BLE001
             continue
-    # Title can vary (accelerator '&', spacing). Scan all buttons by name.
+    # Title can vary (accelerator '&', spacing, "Install Relaunch" without &).
     try:
-        wanted = {t.lower().replace("&", "").replace("  ", " ").strip() for t in titles}
+        wanted = {_norm_btn_label(t) for t in titles}
         for btn in dlg.descendants(control_type="Button"):
             try:
                 name = (btn.window_text() or "").strip()
-                norm = name.lower().replace("&", "").replace("  ", " ").strip()
-                if norm in wanted or any(w in norm for w in wanted if len(w) >= 5):
+                norm = _norm_btn_label(name)
+                if not norm:
+                    continue
+                if norm in wanted:
+                    btn.click_input()
+                    time.sleep(0.5)
+                    return name or norm
+                # Substring match only for longer labels (avoid "ok" false positives).
+                if any(w in norm for w in wanted if len(w) >= 6):
                     btn.click_input()
                     time.sleep(0.5)
                     return name or norm
@@ -506,7 +585,8 @@ def dismiss_update_dialog(dlg) -> str:
     """Click Later / Cancel / Esc so the suite can continue."""
     if dlg is None:
         return "no dialog"
-    clicked = _click_dialog_button(dlg, ("Later", "Cancel", "OK", "Close"))
+    # Prefer Later — never fuzzy-match Install buttons here.
+    clicked = _click_dialog_button(dlg, ("Later", "Cancel", "Close", "No"))
     if clicked:
         return f"clicked {clicked}"
     try:
@@ -526,8 +606,10 @@ def accept_update_dialog(dlg) -> str:
         (
             "Install & Relaunch",
             "Install && Relaunch",
-            "Install Relaunch",
+            "Install and Relaunch",
+            "Install Relaunch",  # UIA often strips '&'
             "Install",
+            "Yes",
             "OK",
         ),
     )
@@ -560,6 +642,35 @@ def handle_update_prompt(
 def dismiss_update_dialog_if_present(timeout: float = 2.0) -> str:
     """Suite-safe helper: dismiss unexpected update prompts with Later/Escape."""
     return handle_update_prompt(prefer_install=False, timeout=timeout)
+
+
+def dismiss_update_dialogs_until_clear(
+    *,
+    settle_sec: float = 6.0,
+    hard_timeout: float = 12.0,
+) -> str:
+    """
+    Repeatedly dismiss Update available dialogs until none remain or hard_timeout.
+
+    Covers the quiet-check race (check starts ~4s after launch; network may delay
+    the dialog past a single short poll). Caps work so we never spin indefinitely.
+    """
+    deadline = time.time() + hard_timeout
+    settle_until = time.time() + settle_sec
+    actions: list[str] = []
+    while time.time() < deadline:
+        remaining = max(0.15, min(1.0, deadline - time.time()))
+        detail = dismiss_update_dialog_if_present(timeout=remaining)
+        if detail == "absent":
+            if time.time() >= settle_until:
+                return "; ".join(actions) if actions else "absent"
+            time.sleep(0.35)
+            continue
+        actions.append(detail)
+        time.sleep(0.4)
+    if actions:
+        return "; ".join(actions) + " (hard-timeout; dialog may remain)"
+    return "absent (hard-timeout)"
 
 
 def click_check_for_updates(s: RpaSession) -> str:
@@ -1342,7 +1453,9 @@ def scenario_auto_update(s: RpaSession) -> ScenarioResult:
     old_exe: Optional[Path] = None
     previous_exe = Path(s.exe)
     prev_dismiss = s.dismiss_update_on_launch
+    prev_disable = s.disable_updater
     s.dismiss_update_on_launch = False
+    s.disable_updater = False
     try:
         # ── 1. latest.json must exist with sane Windows URLs ──────────────
         try:
@@ -1424,8 +1537,8 @@ def scenario_auto_update(s: RpaSession) -> ScenarioResult:
 
         # ── 3. Relaunch on older build (startup quiet check ~4s) ───────────
         try:
-            # Keep the update dialog — do not auto-dismiss on this launch.
-            s.restart(old_exe, dismiss_update=False)
+            # Keep the update dialog — do not auto-dismiss; enable quiet check.
+            s.restart(old_exe, dismiss_update=False, enable_updater=True)
             # Startup check fires after ~4s; give it a moment.
             time.sleep(5.0)
             launch_shot = s.shot("auto_update_older_launch")
@@ -1648,10 +1761,15 @@ def scenario_auto_update(s: RpaSession) -> ScenarioResult:
         )
     finally:
         s.dismiss_update_on_launch = prev_dismiss
+        s.disable_updater = prev_disable
         # Restore previous exe for any subsequent scenarios (if any).
         try:
             if previous_exe.is_file() and s.exe.resolve() != previous_exe.resolve():
-                s.restart(previous_exe, dismiss_update=True)
+                s.restart(
+                    previous_exe,
+                    dismiss_update=True,
+                    enable_updater=not prev_disable,
+                )
         except Exception:  # noqa: BLE001
             pass
 
@@ -1668,6 +1786,56 @@ SCENARIOS: dict[str, Callable[[RpaSession], ScenarioResult]] = {
     "context_menu": scenario_context_menu,
     "auto_update": scenario_auto_update,
 }
+
+
+def _run_scenario_with_timeout(
+    fn: Callable[[RpaSession], ScenarioResult],
+    session: RpaSession,
+    name: str,
+    timeout_sec: float,
+) -> ScenarioResult:
+    """
+    Run a scenario with a hard wall-clock timeout.
+
+    Scenarios run in a worker thread so a wedged UIA call cannot pin the suite
+    forever. On timeout we kill Void Browser and abandon the worker.
+    """
+    if timeout_sec <= 0:
+        return fn(session)
+
+    t0 = time.time()
+    pool = ThreadPoolExecutor(max_workers=1)
+    fut = pool.submit(fn, session)
+    try:
+        return fut.result(timeout=timeout_sec)
+    except FuturesTimeoutError:
+        detail = (
+            f"scenario hard-timeout after {timeout_sec:.0f}s "
+            f"(likely blocked by Update dialog or hung UIA)"
+        )
+        print(f"  TIMEOUT: {detail}", flush=True)
+        try:
+            dismiss_update_dialogs_until_clear(settle_sec=0.2, hard_timeout=2.0)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            session.stop()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            shot = session.shot(f"{name}_timeout")
+        except Exception:  # noqa: BLE001
+            shot = None
+        return ScenarioResult(
+            name,
+            False,
+            [Step("scenario_timeout", False, detail, shot)],
+            error=detail,
+            duration_sec=time.time() - t0,
+        )
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+
 
 DEFAULT_SCENARIOS = (
     "download_install,app_launch,smoke_navigate,nav_history,visit_void_site,"
@@ -1871,7 +2039,9 @@ def write_report(out_dir: Path, exe: Path, results: list[ScenarioResult], meta: 
             "settings_preserves_tab: confirm the site content returns after Esc/Done.",
             "youtube_signin_page: confirm Google sign-in UI is visible (not a Void block page).",
             "auto_update: fail if latest.json 404/wrong URLs; expect Update available dialog from older build; click Install & Relaunch.",
-            "update prompts mid-suite: non-auto_update scenarios dismiss with Later via dismiss_update_dialog_if_present.",
+            "update prompts mid-suite: VOID_DISABLE_UPDATER=1 on non-auto_update launches; "
+            "fallback dismiss Later via dismiss_update_dialogs_until_clear; "
+            "per-scenario hard timeout VOID_RPA_SCENARIO_TIMEOUT (default 180s).",
             "teardown: uninstall_void_browser always runs; VM must not keep NSIS/MSI Void Browser installed.",
         ],
     }
@@ -1998,18 +2168,38 @@ def main() -> int:
             # before every scenario except auto_update, which accepts Install & Relaunch.
             if name != "auto_update" and session is not None:
                 try:
-                    detail = dismiss_update_dialog_if_present(timeout=1.5)
+                    detail = dismiss_update_dialogs_until_clear(
+                        settle_sec=1.0, hard_timeout=8.0
+                    )
                     if detail != "absent":
                         print(f"  pre-scenario update prompt: {detail}", flush=True)
                 except Exception as e:  # noqa: BLE001
                     print(f"  pre-scenario update dismiss soft-fail: {e}", flush=True)
             try:
-                result = SCENARIOS[name](session)
+                result = _run_scenario_with_timeout(
+                    SCENARIOS[name], session, name, DEFAULT_SCENARIO_TIMEOUT_SEC
+                )
             except Exception as e:  # noqa: BLE001
                 result = ScenarioResult(name, False, error=f"{e}\n{traceback.format_exc()}")
             results.append(result)
             status = "PASS" if result.ok else "FAIL"
             print(f"  {status} ({result.duration_sec:.1f}s)", flush=True)
+
+            # After hard-timeout / crash, relaunch so later scenarios are not dead.
+            if (
+                session is not None
+                and name != "auto_update"
+                and (not result.ok)
+                and (not session.alive())
+                and current_exe is not None
+            ):
+                try:
+                    print("  session dead after failure — relaunching", flush=True)
+                    session.restart(
+                        current_exe, dismiss_update=True, enable_updater=False
+                    )
+                except Exception as e:  # noqa: BLE001
+                    print(f"  relaunch after failure soft-fail: {e}", flush=True)
 
             # After a successful download_install, stop → promote to dist\ → relaunch.
             if name == "download_install" and result.ok and result.new_exe:
@@ -2035,11 +2225,14 @@ def main() -> int:
                         print(f"  Promote to dist failed ({e}); launching from download path", flush=True)
                         launch_from = downloaded
                     session.exe = launch_from
-                    session.start(dismiss_update=True)
+                    session.start(dismiss_update=True, enable_updater=False)
                     current_exe = launch_from
-                    # Extra pass after relaunch — quiet check may fire just after connect.
+                    # Extra pass after relaunch — quiet check may fire just after connect
+                    # on older binaries that ignore VOID_DISABLE_UPDATER.
                     try:
-                        detail = dismiss_update_dialog_if_present(timeout=4.0)
+                        detail = dismiss_update_dialogs_until_clear(
+                            settle_sec=6.0, hard_timeout=12.0
+                        )
                         if detail != "absent":
                             print(f"  post-promote update prompt: {detail}", flush=True)
                     except Exception as e:  # noqa: BLE001

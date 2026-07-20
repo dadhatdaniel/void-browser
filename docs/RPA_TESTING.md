@@ -130,7 +130,12 @@ What it does:
 
 Default suite runs **all** of the above (in that order). After `download_install`, the harness relaunches on the staged build. `auto_update` runs last so it can temporarily switch to an older build, then restores the previous exe. **Teardown** always runs `uninstall_void_browser` (registry QuietUninstall/`/S`) so the VM does not keep Void Browser installed — even if scenarios fail.
 
-Unexpected **Update available** dialogs during other scenarios (e.g. suite still on alpha.N while `latest.json` advertises alpha.N+1) are dismissed with **Later** via `dismiss_update_dialog_if_present` / `handle_update_prompt` after launch and before each non-`auto_update` scenario.
+Unexpected **Update available** dialogs during other scenarios (e.g. suite still on alpha.N while `latest.json` advertises alpha.N+1) are handled two ways:
+
+1. **Preferred (alpha.18+):** RPA launches Void with `VOID_DISABLE_UPDATER=1` (or `--disable-updater`) so the quiet startup check never runs. `auto_update` clears that env so the dialog can appear.
+2. **Fallback (current release binaries):** `dismiss_update_dialogs_until_clear` clicks **Later** after launch / promote / before each non-`auto_update` scenario, covering the quiet-check race (~4s + network).
+
+Each scenario also has a hard wall-clock timeout (`VOID_RPA_SCENARIO_TIMEOUT`, default **180s**) so a stuck modal cannot wedge the suite until the CI 30-minute job timeout.
 
 ### `auto_update` details
 
@@ -148,6 +153,8 @@ Overrides:
 | `VOID_RPA_LATEST_JSON_URL` | Override latest.json URL |
 | `VOID_RPA_OLD_TAG` | Older release tag (default `v0.1.0-alpha.15`) |
 | `VOID_RPA_OLD_PORTABLE_URL` | Pin exact older `void-browser.exe` URL |
+| `VOID_DISABLE_UPDATER` | Set by harness on non-`auto_update` launches (app honors from alpha.18+) |
+| `VOID_RPA_SCENARIO_TIMEOUT` | Per-scenario hard timeout seconds (default `180`) |
 
 ### Download notes
 
