@@ -11,6 +11,7 @@ Linux/Unraid Docker **cannot** run this harness (no WebView2 GUI). See
 | Path | Today |
 |------|--------|
 | GitLab `rpa-windows` (WinRM → `10.0.0.28`) after GitHub Release | **Yes** — `sync-website-releases-to-gitlab.sh` POSTs `RPA_AFTER_RELEASE=1` |
+| GitLab `rpa-linux` (SSH → `10.0.1.114`) after GitHub Release | **Yes** — same trigger; smoke AppImage launch + navigate |
 | GitHub Actions `RPA Windows` after release | **Yes** — Build & Release `workflow_dispatch`es with `release_tag` (needs Environment secret `GH_WORKFLOW_TOKEN`). Plain `on.release` alone is unreliable: `GITHUB_TOKEN`-created releases do not start sibling workflows. |
 | GitHub Actions nightly / `workflow_dispatch` | Yes |
 | Unraid cron / local `rpa-after-release.ps1` | Optional backup |
@@ -22,10 +23,10 @@ Linux/Unraid Docker **cannot** run this harness (no WebView2 GUI). See
 1. Tag + push on GitLab (`v*`) → `trigger-github-build` kicks **Build & Release**.
 2. Build & Release publishes installers + signed `latest.json`.
 3. Release job syncs `website/releases.json` to GitLab → **deploy-site**.
-4. Same sync POSTs GitLab pipeline `RPA_AFTER_RELEASE=1` → **rpa-windows** WinRM to rpa-win (full suite incl. `auto_update`).
+4. Same sync POSTs GitLab pipeline `RPA_AFTER_RELEASE=1` → **rpa-windows** (WinRM) + **rpa-linux** (SSH smoke).
 5. Secondary: Build & Release dispatches hosted **RPA Windows** (`release_tag=v*`) via `GH_WORKFLOW_TOKEN`.
 
-Requires GitLab CI variable **`VOID_RPA_WIN_PASS`** (masked). The VM uses **rpa-win Autologon** so an Active console session exists after reboot without opening VNC (see [TEST_VMS.md](./TEST_VMS.md)).
+Requires GitLab CI variables **`VOID_RPA_WIN_PASS`** and **`VOID_RPA_LINUX_PASS`** (masked). Windows VM uses **rpa-win Autologon**; Linux VM uses **GDM autologon** for `rpa-linux` (see [TEST_VMS.md](./TEST_VMS.md)).
 
 ## Quick start (this Windows PC)
 
@@ -226,6 +227,27 @@ Job: `rpa-windows` in `.gitlab-ci.yml` → `scripts/ci/rpa-winrm.py`.
 | `main` push | `sync-rpa-win-repo` refreshes `C:\void-browser` on the VM |
 
 Artifacts: full PNGs + `report.json` mirror to `/mnt/user/appdata/void-rpa-artifacts/<stamp>/` (runner share mount). GitLab job artifact upload is disabled on this instance (coordinator 500). Optional local JPEG pack: `python3 scripts/ci/prepare-rpa-upload.py`.
+
+### Path A2 — GitLab → rpa-linux (smoke, parallel)
+
+Job: `rpa-linux` in `.gitlab-ci.yml` → `scripts/ci/rpa-ssh.py`.
+
+Guest: `void-test-linux` / `rpa-linux` @ **`10.0.1.114`**. VNC diagnose: `http://10.0.0.10:5701/`.
+
+| Event | Behavior |
+|-------|----------|
+| Pipeline var `RPA_AFTER_RELEASE=1` | Auto after GitHub release sync; AppImage smoke |
+| `website/releases.json` change on `main` | Auto |
+| Manual play on `main` / `v*` | Same job |
+
+Scenarios (initial): `smoke_launch`, `smoke_navigate` via `scripts/run-rpa-linux.sh` (downloads Linux AppImage from LAN `releases.json`).
+
+Requires **`VOID_RPA_LINUX_PASS`**. Desktop: GDM autologin — see `scripts/ci/configure-rpa-linux-desktop.sh`.
+
+```powershell
+$env:VOID_RPA_LINUX_PASS = '<password>'
+python scripts/ci/rpa-ssh.py --push-harness --download-install
+```
 
 ### Path B — GitHub Actions (secondary)
 

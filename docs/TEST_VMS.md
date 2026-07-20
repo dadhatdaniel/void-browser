@@ -11,6 +11,7 @@ Inventory date: **2026-07-20** (host `lightfootserver` / `10.0.0.10`).
 | **2026-07-20 (this update)** | **Cloned** configured Windows guest `fresh-configured` → **`void-rpa-windows`**. GPU passthrough stripped; VNC added. Installer Windows VM renamed to `void-rpa-windows-scratch` (shut off). `void-test-linux` kept. |
 | **2026-07-20 (later)** | Disabled **julia** autologin on `void-rpa-windows` (see Guest access). VM stopped at login screen. |
 | **2026-07-20 (Autologon)** | Enabled **rpa-win** Winlogon Autologon + no idle lock. After reboot, console Session 1 is Active **without** opening VNC. |
+| **2026-07-20 (Linux RPA)** | Recreated Ubuntu 24.04 `void-test-linux`; **GDM + rpa-linux autologin** (Xorg); OpenSSH; GitLab **`rpa-linux`** smoke (AppImage launch + navigate via SSH). |
 
 **Why clone `fresh-configured` instead of Win11 OOBE?**  
 User already has a configured Windows disk. Cloning avoids a full reinstall/license OOBE. Original stays shut off with GPU passthrough intact for personal use.
@@ -23,7 +24,7 @@ User already has a configured Windows disk. Cloning avoids a full reinstall/lice
 | **GitHub Actions `windows-latest`** | Yes | No | Partial | CI smoke |
 | **GitHub Actions `ubuntu-latest`** | Yes | Yes | No WebView2 | WebKitGTK |
 | **Unraid Docker** | Yes | Yes | **No** | No Windows GUI |
-| **`void-test-linux`** | After Ubuntu install | After deps | No | VNC; ISO install |
+| **`void-test-linux`** | Optional | Optional | **Yes — smoke** | GDM autologin; AppImage RPA via SSH |
 | **`void-rpa-windows`** | Optional (MSVC) | No | **Yes — cloned guest** | VNC; already-configured Windows disk |
 
 ## Host resources
@@ -43,7 +44,7 @@ Passwords live only on the Unraid host: `/root/void-rpa-vm-credentials.txt` (mod
 | Libvirt name | Guest hostname | Guest IP (br0) | Login user | Notes |
 |--------------|----------------|----------------|------------|-------|
 | **`void-rpa-windows`** | `JULIARIG` (plan: `rpa-win-vm`) | **`10.0.0.28`** | **`rpa-win`** | WinRM `5985`, RDP `3389`. VNC `http://10.0.0.10:5702/`. |
-| **`void-test-linux`** | `rpa-linux-vm` | **`10.0.1.114`** | **`rpa-linux`** | Ping OK; TCP/22 refused as of 2026-07-20 (OpenSSH not listening yet). VNC `http://10.0.0.10:5701/`. |
+| **`void-test-linux`** | `rpa-linux-vm` | **`10.0.1.114`** | **`rpa-linux`** | SSH `22`, GDM autologin (Xorg `:0`). VNC `http://10.0.0.10:5701/`. |
 
 ### Windows: rpa-win Autologon (required for headless RPA)
 
@@ -148,11 +149,20 @@ virsh undefine void-rpa-windows-scratch --nvram
 # then rm -rf /mnt/user/VMs/void-rpa-windows-scratch   # only if you confirm it is the empty installer disk
 ```
 
-## `void-test-linux` next steps
+## `void-test-linux` (Linux RPA)
 
-1. VNC: `http://10.0.0.10:5701/` (guest IP `10.0.1.114`, user `rpa-linux`).
-2. Enable OpenSSH if needed (`sshd` was not listening on 2026-07-20 smoke check).
-3. Rust + WebKitGTK deps → `cargo test --manifest-path src-tauri/Cargo.toml`
+1. VNC (optional diagnose): `http://10.0.0.10:5701/`
+2. Guest: `rpa-linux` @ `10.0.1.114` — **GDM autologin** (Xorg `:0`); OpenSSH enabled.
+3. GitLab job **`rpa-linux`** → `scripts/ci/rpa-ssh.py` → AppImage smoke (`smoke_launch`, `smoke_navigate`).
+4. Re-apply desktop config: `bash scripts/ci/configure-rpa-linux-desktop.sh` on the guest (or `--configure-desktop` via rpa-ssh).
+5. Local trigger from DANIELRIG:
+
+```powershell
+$env:VOID_RPA_LINUX_PASS = '<password>'   # never commit
+python scripts/ci/rpa-ssh.py --push-harness --download-install
+```
+
+Requires GitLab CI variable **`VOID_RPA_LINUX_PASS`** (masked).
 
 ## Windows license
 
@@ -161,7 +171,7 @@ Cloning a licensed disk can still require reactivation after hardware change (no
 ## Recommendation
 
 1. **RPA now** → this PC, or `void-rpa-windows` via WinRM (Autologon; VNC optional for diagnose).
-2. **Linux unit/build** → GHA `ubuntu-latest`, Docker, or finish `void-test-linux`.
+2. **Linux RPA smoke** → `void-test-linux` via GitLab `rpa-linux` / `scripts/ci/rpa-ssh.py`.
 3. **Do not** start `fresh-configured` for agent RPA (no VNC; steals GPU).
 
 ## SSH

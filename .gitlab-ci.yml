@@ -13,7 +13,7 @@
 #     rustfmt, clippy, cargo-audit, license-check, app-security,
 #     site-security, site-e2e, sync-rpa-win-repo
 #     deploy-site          — only when website/** changed
-#     rpa-windows          — only when website/releases.json changed
+#     rpa-windows, rpa-linux — only when website/releases.json changed
 #   AUTO on MR:
 #     rustfmt, clippy, app-security, site-security
 #   AUTO on v* tag:
@@ -21,11 +21,11 @@
 #   AUTO on schedule / API (SYNC_RELEASES=1):
 #     sync-releases-from-github
 #   AUTO on API (RPA_AFTER_RELEASE=1):
-#     rpa-windows only (all other jobs skipped)
+#     rpa-windows + rpa-linux only (all other jobs skipped)
 #   MANUAL (Play required):
 #     virus-scan           — main + tags (never auto; binary VT)
 #     deploy-site          — main when website/** did NOT change
-#     rpa-windows          — main/tag when not an auto-release path
+#     rpa-windows, rpa-linux — main/tag when not an auto-release path
 #     sync-releases-from-github — main (fallback; primary sync is GHA→GitLab)
 #
 # Security stages are DEFENSIVE only (audit / SAST greps / config / headers).
@@ -595,6 +595,76 @@ rpa-windows:
       changes:
         - website/releases.json
     # Manual play from any main / tag pipeline (test without a new release)
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
+    - if: $CI_COMMIT_TAG =~ /^v/
+      when: manual
+      allow_failure: true
+
+# ── RPA smoke on rpa-linux (Unraid LAN → SSH) ─────
+# Parallel to rpa-windows. Smoke-only initially (AppImage launch + navigate).
+# Guest needs Active GNOME session (GDM autologin — VNC viewer not required).
+#
+# GitLab CI/CD variables (masked, protected=false):
+#   VOID_RPA_LINUX_PASS  — password for rpa-linux (never commit)
+#   VOID_RPA_LINUX_USER  — default rpa-linux
+#   VOID_RPA_LINUX_HOST  — default 10.0.1.114
+
+rpa-linux:
+  stage: rpa
+  image: python:3.12-slim
+  needs: []
+  timeout: 45m
+  allow_failure: true
+  resource_group: void-rpa-linux
+  variables:
+    VOID_RPA_LINUX_HOST: "10.0.1.114"
+    VOID_RPA_LINUX_USER: "rpa-linux"
+    VOID_RPA_MIRROR_DIR: "/mnt/user/appdata/void-rpa-artifacts"
+  before_script:
+    - pip install --no-cache-dir paramiko
+  script:
+    - |
+      set -eu
+      echo "=== RPA Linux via SSH → ${VOID_RPA_LINUX_HOST} ==="
+      if [ -z "${VOID_RPA_LINUX_PASS:-}" ]; then
+        echo "BLOCKER: set GitLab CI variable VOID_RPA_LINUX_PASS (masked, protected=false)"
+        echo "  Never commit the password. Guest: rpa-linux @ 10.0.1.114"
+        exit 1
+      fi
+      python3 scripts/ci/rpa-ssh.py \
+        --push-harness \
+        --download-install \
+        --scenarios smoke_launch,smoke_navigate \
+        --timeout-sec "${RPA_LINUX_TIMEOUT_SEC:-900}"
+    - |
+      set -eu
+      latest=$(ls -1dt artifacts/rpa/*/ 2>/dev/null | head -n1 || true)
+      if [ -z "$latest" ]; then
+        echo "No artifacts/rpa/* pulled"
+        exit 1
+      fi
+      echo "Artifacts: $latest"
+      test -f "${latest}report.json"
+      python3 scripts/ci/check-rpa-report.py "${latest}report.json"
+  after_script:
+    - |
+      set +e
+      latest=$(ls -1dt artifacts/rpa/*/ 2>/dev/null | head -n1 || true)
+      if [ -n "$latest" ] && [ -d "${VOID_RPA_MIRROR_DIR:-}" ]; then
+        stamp=$(basename "$latest")
+        mkdir -p "${VOID_RPA_MIRROR_DIR}/linux-${stamp}"
+        cp -a "${latest}." "${VOID_RPA_MIRROR_DIR}/linux-${stamp}/" 2>/dev/null || true
+        echo "Mirrored -> ${VOID_RPA_MIRROR_DIR}/linux-${stamp}"
+      else
+        echo "Mirror skip (VOID_RPA_MIRROR_DIR not mounted or no artifacts)"
+      fi
+  rules:
+    - if: $RPA_AFTER_RELEASE == "1"
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - website/releases.json
     - if: $CI_COMMIT_BRANCH == "main"
       when: manual
       allow_failure: true
