@@ -126,9 +126,11 @@ What it does:
 | `new_tab` | Ctrl+T second tab; Ctrl+Shift+Tab switch back; blank fail |
 | `youtube_signin_page` | Load `accounts.google.com/signin` UI (no password unless env set); blank fail |
 | `context_menu` | URL bar clipboard Ctrl+C / Ctrl+V |
-| `auto_update` | Fetch GitHub `latest.json` (**fail on 404 / wrong URLs**); stage older portable (default `v0.1.0-alpha.15`); launch → startup quiet check and/or Settings **Check for updates**; assert **Update available** dialog; screenshot; dismiss **Later** (does not install) |
+| `auto_update` | Fetch GitHub `latest.json` (**fail on 404 / wrong URLs**); stage older portable (default `v0.1.0-alpha.15`); launch → startup quiet check and/or Settings **Check for updates**; assert **Update available** dialog; screenshot; click **Install & Relaunch** |
 
 Default suite runs **all** of the above (in that order). After `download_install`, the harness relaunches on the staged build. `auto_update` runs last so it can temporarily switch to an older build, then restores the previous exe. **Teardown** always runs `uninstall_void_browser` (registry QuietUninstall/`/S`) so the VM does not keep Void Browser installed — even if scenarios fail.
+
+Unexpected **Update available** dialogs during other scenarios (e.g. suite still on alpha.N while `latest.json` advertises alpha.N+1) are dismissed with **Later** via `dismiss_update_dialog_if_present` / `handle_update_prompt` after launch and before each non-`auto_update` scenario.
 
 ### `auto_update` details
 
@@ -136,7 +138,7 @@ Default suite runs **all** of the above (in that order). After `download_install
 2. Require `platforms.windows-x86_64.url` on `github.com/dadhatdaniel/void-browser/releases/download/...` plus a signature.
 3. Download older portable (`VOID_RPA_OLD_TAG`, default `v0.1.0-alpha.15`, or first older release that ships `void-browser.exe`).
 4. Relaunch older build; wait for startup quiet update prompt (~4s) or open Settings and click **Check for updates**.
-5. Screenshot the dialog; click **Later** (suite must not install/restart mid-run).
+5. Screenshot the dialog; click **Install & Relaunch** (accept path). Soft-reconnect if the process restarts.
 6. Fail if `latest.json` is 404, URLs are wrong, older portable cannot download, or no update dialog appears.
 
 Overrides:

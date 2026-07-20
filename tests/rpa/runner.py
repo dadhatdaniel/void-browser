@@ -87,8 +87,12 @@ class RpaSession:
         self.app = None
         self.win = None
         self._shot_i = 0
+        # When True (default), dismiss unexpected Update available dialogs after launch
+        # so functional scenarios are not blocked. auto_update sets False so it can
+        # assert and accept the prompt itself.
+        self.dismiss_update_on_launch = True
 
-    def start(self) -> None:
+    def start(self, *, dismiss_update: Optional[bool] = None) -> None:
         self.out_dir.mkdir(parents=True, exist_ok=True)
         creationflags = 0
         if sys.platform == "win32":
@@ -100,14 +104,20 @@ class RpaSession:
         )
         time.sleep(self.launch_wait)
         self._connect()
+        do_dismiss = self.dismiss_update_on_launch if dismiss_update is None else dismiss_update
+        if do_dismiss:
+            # Quiet update check fires ~4s after launch; give it a short window.
+            detail = dismiss_update_dialog_if_present(timeout=3.0)
+            if detail != "absent":
+                print(f"  update prompt after launch: {detail}", flush=True)
 
-    def restart(self, exe: Optional[Path] = None) -> None:
+    def restart(self, exe: Optional[Path] = None, *, dismiss_update: Optional[bool] = None) -> None:
         """Stop current process and launch exe (or same path)."""
         self.stop()
         time.sleep(1.0)
         if exe is not None:
             self.exe = exe
-        self.start()
+        self.start(dismiss_update=dismiss_update)
 
     def _connect(self) -> None:
         from pywinauto import Application
@@ -461,25 +471,95 @@ def find_update_dialog(timeout: float = 12.0):
     return None
 
 
-def dismiss_update_dialog(dlg) -> str:
-    """Click Later / Cancel / Esc so the suite can continue."""
+def _click_dialog_button(dlg, titles: tuple[str, ...]) -> Optional[str]:
+    """Click the first matching button title on dlg; return clicked title or None."""
     if dlg is None:
-        return "no dialog"
-    for title in ("Later", "Cancel", "OK", "Close"):
+        return None
+    for title in titles:
         try:
             btn = dlg.child_window(title=title, control_type="Button")
             if btn.exists(timeout=0.5):
                 btn.click_input()
                 time.sleep(0.5)
-                return f"clicked {title}"
+                return title
         except Exception:  # noqa: BLE001
             continue
+    # Title can vary (accelerator '&', spacing). Scan all buttons by name.
+    try:
+        wanted = {t.lower().replace("&", "").replace("  ", " ").strip() for t in titles}
+        for btn in dlg.descendants(control_type="Button"):
+            try:
+                name = (btn.window_text() or "").strip()
+                norm = name.lower().replace("&", "").replace("  ", " ").strip()
+                if norm in wanted or any(w in norm for w in wanted if len(w) >= 5):
+                    btn.click_input()
+                    time.sleep(0.5)
+                    return name or norm
+            except Exception:  # noqa: BLE001
+                continue
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def dismiss_update_dialog(dlg) -> str:
+    """Click Later / Cancel / Esc so the suite can continue."""
+    if dlg is None:
+        return "no dialog"
+    clicked = _click_dialog_button(dlg, ("Later", "Cancel", "OK", "Close"))
+    if clicked:
+        return f"clicked {clicked}"
     try:
         dlg.type_keys("{ESC}")
         time.sleep(0.4)
         return "sent Escape"
     except Exception as e:  # noqa: BLE001
         return f"dismiss failed: {e}"
+
+
+def accept_update_dialog(dlg) -> str:
+    """Click Install & Relaunch (or Install) to accept the update."""
+    if dlg is None:
+        return "no dialog"
+    clicked = _click_dialog_button(
+        dlg,
+        (
+            "Install & Relaunch",
+            "Install && Relaunch",
+            "Install Relaunch",
+            "Install",
+            "OK",
+        ),
+    )
+    if clicked:
+        return f"clicked {clicked}"
+    return "accept failed: no Install button"
+
+
+def handle_update_prompt(
+    *,
+    prefer_install: bool = False,
+    timeout: float = 2.0,
+) -> str:
+    """
+    If an Update available dialog is present, handle it and return a detail string.
+
+    prefer_install=True  (auto_update): click Install & Relaunch
+    prefer_install=False (all other scenarios / suite setup): click Later / Escape
+
+    Returns 'absent' when no dialog is found within timeout.
+    """
+    dlg = find_update_dialog(timeout=timeout)
+    if dlg is None:
+        return "absent"
+    if prefer_install:
+        return accept_update_dialog(dlg)
+    return dismiss_update_dialog(dlg)
+
+
+def dismiss_update_dialog_if_present(timeout: float = 2.0) -> str:
+    """Suite-safe helper: dismiss unexpected update prompts with Later/Escape."""
+    return handle_update_prompt(prefer_install=False, timeout=timeout)
 
 
 def click_check_for_updates(s: RpaSession) -> str:
@@ -1255,12 +1335,14 @@ def scenario_auto_update(s: RpaSession) -> ScenarioResult:
       - windows-x86_64.url on github.com/dadhatdaniel/void-browser releases
       - older portable downloaded and launched
       - update dialog appears OR Settings status / dialog proves fetch worked
-    Does not install the update (clicks Later) so the suite can finish.
+      - click Install & Relaunch (accept the update) once the dialog is proven
     """
     steps: list[Step] = []
     t0 = time.time()
     old_exe: Optional[Path] = None
     previous_exe = Path(s.exe)
+    prev_dismiss = s.dismiss_update_on_launch
+    s.dismiss_update_on_launch = False
     try:
         # ── 1. latest.json must exist with sane Windows URLs ──────────────
         try:
@@ -1342,7 +1424,8 @@ def scenario_auto_update(s: RpaSession) -> ScenarioResult:
 
         # ── 3. Relaunch on older build (startup quiet check ~4s) ───────────
         try:
-            s.restart(old_exe)
+            # Keep the update dialog — do not auto-dismiss on this launch.
+            s.restart(old_exe, dismiss_update=False)
             # Startup check fires after ~4s; give it a moment.
             time.sleep(5.0)
             launch_shot = s.shot("auto_update_older_launch")
@@ -1366,6 +1449,7 @@ def scenario_auto_update(s: RpaSession) -> ScenarioResult:
 
         dialog_seen = False
         dialog_detail = ""
+        install_detail = ""
 
         # Startup quiet check may already show "Update available".
         dlg = find_update_dialog(timeout=6.0)
@@ -1377,8 +1461,12 @@ def scenario_auto_update(s: RpaSession) -> ScenarioResult:
             except Exception:  # noqa: BLE001
                 dialog_detail = "startup dialog present"
             steps.append(Step("startup_update_prompt", True, dialog_detail, dlg_shot))
-            dismiss_update_dialog(dlg)
-            time.sleep(0.5)
+            install_detail = handle_update_prompt(prefer_install=True, timeout=0.5)
+            # Dialog already found — accept directly if handle's re-find is flaky.
+            if install_detail == "absent":
+                install_detail = accept_update_dialog(dlg)
+            steps.append(Step("install_relaunch", "clicked" in install_detail, install_detail, None))
+            time.sleep(1.0)
         else:
             steps.append(
                 Step(
@@ -1410,7 +1498,10 @@ def scenario_auto_update(s: RpaSession) -> ScenarioResult:
                 except Exception:  # noqa: BLE001
                     dialog_detail = "update dialog present"
                 steps.append(Step("update_available_dialog", True, dialog_detail, dlg_shot))
-                dismiss_update_dialog(dlg)
+                install_detail = accept_update_dialog(dlg)
+                steps.append(
+                    Step("install_relaunch", "clicked" in install_detail, install_detail, None)
+                )
             else:
                 steps.append(
                     Step(
@@ -1436,6 +1527,64 @@ def scenario_auto_update(s: RpaSession) -> ScenarioResult:
             steps.append(
                 Step("update_available_dialog", True, dialog_detail or "seen at startup", None)
             )
+            if not any(st.name == "install_relaunch" for st in steps):
+                steps.append(
+                    Step(
+                        "install_relaunch",
+                        bool(install_detail) and "clicked" in install_detail,
+                        install_detail or "not attempted",
+                        None,
+                    )
+                )
+
+        # Install & Relaunch may replace the process — wait briefly, then reconnect
+        # so teardown/restore can still drive the window.
+        if dialog_seen and install_detail and "clicked" in install_detail:
+            try:
+                deadline = time.time() + 90.0
+                while time.time() < deadline:
+                    if s.proc and s.proc.poll() is not None:
+                        break
+                    # Process still alive but dialog gone — download may be in progress.
+                    if find_update_dialog(timeout=0.3) is None and s.alive():
+                        time.sleep(2.0)
+                        break
+                    time.sleep(1.0)
+                if s.proc and s.proc.poll() is not None:
+                    # App exited to install/relaunch — attach to a new Void process if any.
+                    time.sleep(4.0)
+                    try:
+                        from pywinauto import Application, Desktop
+
+                        desk = Desktop(backend="uia")
+                        win = desk.window(title_re=".*Void.*")
+                        if win.exists(timeout=20):
+                            s.app = Application(backend="uia").connect(handle=win.handle)
+                            s.win = win
+                            s.proc = None  # external relaunch; stop() becomes no-op
+                            steps.append(
+                                Step(
+                                    "post_install_relaunch",
+                                    True,
+                                    f"reconnected title={s.window_title()!r}",
+                                    s.shot("auto_update_after_install"),
+                                )
+                            )
+                        else:
+                            steps.append(
+                                Step(
+                                    "post_install_relaunch",
+                                    True,
+                                    "process exited; no window yet (ok — suite ends)",
+                                    None,
+                                )
+                            )
+                    except Exception as e:  # noqa: BLE001
+                        steps.append(
+                            Step("post_install_relaunch", True, f"reconnect soft: {e}", None)
+                        )
+            except Exception as e:  # noqa: BLE001
+                steps.append(Step("post_install_relaunch", True, f"wait soft: {e}", None))
 
         # Evidence that latest.json windows URL matches expected release asset pattern.
         steps.append(
@@ -1464,12 +1613,19 @@ def scenario_auto_update(s: RpaSession) -> ScenarioResult:
             (st for st in steps if st.name == "update_available_dialog"),
             None,
         )
+        soft_install = next(
+            (st for st in steps if st.name == "install_relaunch"),
+            None,
+        )
         ok = all(st.ok for st in hard) and (soft_dialog is None or soft_dialog.ok)
+        # Prefer proving Install & Relaunch was clicked when a dialog was shown.
+        if ok and soft_install is not None and soft_dialog is not None and soft_dialog.ok:
+            ok = soft_install.ok
         # If UIA cannot find the dialog on a headless-ish runner but latest.json is
         # valid and older build launched, still fail — user asked to assert prompt
         # or at least updater reaches latest.json without 404. Dialog is the UI proof.
         if not ok:
-            err = "auto_update failed (latest.json, older build, or update dialog)"
+            err = "auto_update failed (latest.json, older build, update dialog, or Install click)"
         else:
             err = None
 
@@ -1491,10 +1647,11 @@ def scenario_auto_update(s: RpaSession) -> ScenarioResult:
             "auto_update", False, steps, error=str(e), duration_sec=time.time() - t0
         )
     finally:
+        s.dismiss_update_on_launch = prev_dismiss
         # Restore previous exe for any subsequent scenarios (if any).
         try:
             if previous_exe.is_file() and s.exe.resolve() != previous_exe.resolve():
-                s.restart(previous_exe)
+                s.restart(previous_exe, dismiss_update=True)
         except Exception:  # noqa: BLE001
             pass
 
@@ -1713,7 +1870,8 @@ def write_report(out_dir: Path, exe: Path, results: list[ScenarioResult], meta: 
             "visit_void_site: confirm VOID hero on LAN :5080 + Get Void buttons; public URL is optional/CF-ok.",
             "settings_preserves_tab: confirm the site content returns after Esc/Done.",
             "youtube_signin_page: confirm Google sign-in UI is visible (not a Void block page).",
-            "auto_update: fail if latest.json 404/wrong URLs; expect Update available dialog from older build.",
+            "auto_update: fail if latest.json 404/wrong URLs; expect Update available dialog from older build; click Install & Relaunch.",
+            "update prompts mid-suite: non-auto_update scenarios dismiss with Later via dismiss_update_dialog_if_present.",
             "teardown: uninstall_void_browser always runs; VM must not keep NSIS/MSI Void Browser installed.",
         ],
     }
@@ -1835,6 +1993,16 @@ def main() -> int:
 
         for name in names:
             print(f"-- {name} --", flush=True)
+            # Unexpected Update available dialogs block UIA mid-suite (e.g. alpha.N
+            # installed while latest.json advertises alpha.N+1). Dismiss with Later
+            # before every scenario except auto_update, which accepts Install & Relaunch.
+            if name != "auto_update" and session is not None:
+                try:
+                    detail = dismiss_update_dialog_if_present(timeout=1.5)
+                    if detail != "absent":
+                        print(f"  pre-scenario update prompt: {detail}", flush=True)
+                except Exception as e:  # noqa: BLE001
+                    print(f"  pre-scenario update dismiss soft-fail: {e}", flush=True)
             try:
                 result = SCENARIOS[name](session)
             except Exception as e:  # noqa: BLE001
@@ -1867,8 +2035,15 @@ def main() -> int:
                         print(f"  Promote to dist failed ({e}); launching from download path", flush=True)
                         launch_from = downloaded
                     session.exe = launch_from
-                    session.start()
+                    session.start(dismiss_update=True)
                     current_exe = launch_from
+                    # Extra pass after relaunch — quiet check may fire just after connect.
+                    try:
+                        detail = dismiss_update_dialog_if_present(timeout=4.0)
+                        if detail != "absent":
+                            print(f"  post-promote update prompt: {detail}", flush=True)
+                    except Exception as e:  # noqa: BLE001
+                        print(f"  post-promote update dismiss soft-fail: {e}", flush=True)
 
         exit_code = 0 if results and all(r.ok for r in results) else 1
         return exit_code
