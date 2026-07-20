@@ -370,6 +370,8 @@ sync-releases-from-github:
         || git push origin "HEAD:${CI_COMMIT_REF_NAME}"
       echo "Committed and pushed website/releases.json for $TAG"
   rules:
+    - if: $RPA_AFTER_RELEASE == "1"
+      when: never
     - if: $CI_PIPELINE_SOURCE == "schedule"
     - if: $CI_PIPELINE_SOURCE == "pipeline" && $SYNC_RELEASES == "1"
     - if: $CI_COMMIT_BRANCH == "main"
