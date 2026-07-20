@@ -47,7 +47,9 @@ pub fn updater_disabled() -> bool {
 /// Quiet startup check: prompt only when an update exists.
 pub fn spawn_startup_check<R: Runtime>(app: AppHandle<R>) {
     if updater_disabled() {
-        eprintln!("[void] startup update check disabled (VOID_DISABLE_UPDATER / --disable-updater)");
+        eprintln!(
+            "[void] startup update check disabled (VOID_DISABLE_UPDATER / --disable-updater)"
+        );
         return;
     }
     tauri::async_runtime::spawn(async move {
