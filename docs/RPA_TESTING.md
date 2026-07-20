@@ -255,6 +255,8 @@ Default scenarios (Windows-parity names):
 
 **Linux-impossible / limited:** real AT-SPI context menus, reliable Install & Relaunch button clicks, WebView2-style Google challenge classification. Omnibox focus uses click-chrome + Ctrl+L (not UIA Edit).
 
+**QEMU/no-GPU guests:** set `VOID_SOFTWARE_RENDERING=1` (default in `run-rpa-linux.sh`) so WebKit skips forced HW compositing. Apport crash dialogs are disabled in the SSH wrapper. If the X framebuffer goes solid black after a WebKit crash, reboot `void-test-linux` (GDM autologin) before re-running.
+
 Requires **`VOID_RPA_LINUX_PASS`**. Desktop: GDM autologin — see `scripts/ci/configure-rpa-linux-desktop.sh`.
 
 ```powershell
