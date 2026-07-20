@@ -102,9 +102,7 @@ pub fn spawn(app: AppHandle) {
                 if let Err(e) =
                     browser::show_browser_content(tab_id.clone(), app.clone(), browser).await
                 {
-                    smoke_log(&format!(
-                        "show_browser_content attempt {attempt}: {e}"
-                    ));
+                    smoke_log(&format!("show_browser_content attempt {attempt}: {e}"));
                 }
             }
 

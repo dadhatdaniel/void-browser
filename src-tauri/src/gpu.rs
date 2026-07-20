@@ -56,10 +56,7 @@ pub fn configure_webview2_profile() {
         unsafe {
             std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", &profile);
         }
-        eprintln!(
-            "[void] WebView2 profile: {}",
-            profile.display()
-        );
+        eprintln!("[void] WebView2 profile: {}", profile.display());
     }
 }
 

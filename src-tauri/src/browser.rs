@@ -126,9 +126,7 @@ fn apply_webview_bounds(
     size: LogicalSize<f64>,
 ) -> Result<(), String> {
     let _ = webview.set_auto_resize(false);
-    webview
-        .set_position(pos)
-        .map_err(|e| e.to_string())?;
+    webview.set_position(pos).map_err(|e| e.to_string())?;
     webview.set_size(size).map_err(|e| e.to_string())?;
     let _ = webview.show();
     Ok(())
@@ -748,9 +746,7 @@ pub fn get_webview_info(
             Err(e) => {
                 // Still surface URL if possible — helps diagnose white screens.
                 let url = webview.url().map(|u| u.to_string()).unwrap_or_default();
-                return Err(format!(
-                    "content bounds unavailable (url={url}): {e}"
-                ));
+                return Err(format!("content bounds unavailable (url={url}): {e}"));
             }
         },
     };
