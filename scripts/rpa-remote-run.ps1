@@ -144,9 +144,10 @@ try {
 Set-Location '$RemoteRoot'
 `$code = 1
 try {
-  & '.\scripts\run-rpa-windows.ps1' $exeArg -Scenarios '$Scenarios' -LaunchWait $LaunchWait $dlFlag *>&1 |
-    Tee-Object -FilePath '$log'
-  `$code = `$LASTEXITCODE
+  # Capture native exit code BEFORE Tee-Object; piping can clear LASTEXITCODE.
+  & '.\scripts\run-rpa-windows.ps1' $exeArg -Scenarios '$Scenarios' -LaunchWait $LaunchWait $dlFlag *> '$log'
+  if (`$null -ne `$LASTEXITCODE) { `$code = [int]`$LASTEXITCODE }
+  Get-Content -Path '$log' -ErrorAction SilentlyContinue
 } catch {
   `$_ | Out-String | Tee-Object -FilePath '$log' -Append
   `$code = 1
