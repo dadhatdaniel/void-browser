@@ -294,6 +294,11 @@ sync-releases-from-github:
 deploy-site:
   stage: deploy
   image: alpine:latest
+  # SSH to self can leave a half-open client with no sshd session; keepalives +
+  # remote timeout prevent deploy from hanging the pipeline indefinitely.
+  variables:
+    DEPLOY_HOST: "10.0.0.10"
+    SSH_OPTS: "-o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -o BatchMode=yes"
   before_script:
     - apk add --no-cache openssh-client curl
     - mkdir -p ~/.ssh
@@ -302,15 +307,15 @@ deploy-site:
     - ssh-keyscan -p 22 $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
   script:
     - echo "=== Deploying Void Browser Website ==="
-    - scp -o StrictHostKeyChecking=no website/index.html website/style.css website/Dockerfile website/robots.txt website/sitemap.xml website/ai.txt website/tdmrep.json website/favicon.ico website/favicon-32.png website/favicon-192.png website/favicon-512.png website/apple-touch-icon.png website/site.webmanifest website/manifest.json website/releases.json website/scan-results.json root@$DEPLOY_HOST:/mnt/user/appdata/lightfootcloud/websites/void-browser/
-    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "cd /mnt/user/appdata/lightfootcloud/websites/void-browser && docker build -t void-website . && docker stop void-website 2>/dev/null; docker rm void-website 2>/dev/null; docker run -d --name void-website --restart unless-stopped -p 5080:80 --network proxynet --memory=128m --security-opt no-new-privileges:true void-website"
+    - scp $SSH_OPTS website/index.html website/style.css website/Dockerfile website/robots.txt website/sitemap.xml website/ai.txt website/tdmrep.json website/favicon.ico website/favicon-32.png website/favicon-192.png website/favicon-512.png website/apple-touch-icon.png website/site.webmanifest website/manifest.json website/releases.json website/scan-results.json root@$DEPLOY_HOST:/mnt/user/appdata/lightfootcloud/websites/void-browser/
+    - ssh $SSH_OPTS root@$DEPLOY_HOST "cd /mnt/user/appdata/lightfootcloud/websites/void-browser && timeout 180 docker build -t void-website . && docker stop void-website 2>/dev/null; docker rm void-website 2>/dev/null; docker run -d --name void-website --restart unless-stopped -p 5080:80 --network proxynet --memory=128m --security-opt no-new-privileges:true void-website"
     - sleep 5
-    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -sf http://localhost:5080/ > /dev/null && echo 'Health check PASSED' || (echo 'Health check FAILED' && exit 1)"
-    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -sf http://localhost:5080/releases.json > /dev/null && echo 'releases.json OK' || (echo 'releases.json MISSING' && exit 1)"
-    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -sf http://localhost:5080/scan-results.json > /dev/null && echo 'scan-results.json OK' || (echo 'scan-results.json MISSING' && exit 1)"
-    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -sf -o /dev/null -w '%{http_code}' http://localhost:5080/manifest.json | grep -q 200 && echo 'manifest.json OK' || (echo 'manifest.json FAILED' && exit 1)"
-    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -sI http://localhost:5080/ | grep -E '^(X-|Referrer|Content-Security|Permissions)'"
-    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -s http://localhost:5080/ | grep -qi '<script[^>]*google-analytics' && echo 'TRACKING FOUND' && exit 1 || echo 'No tracking scripts - PASSED'"
+    - ssh $SSH_OPTS root@$DEPLOY_HOST "curl -sf http://localhost:5080/ > /dev/null && echo 'Health check PASSED' || (echo 'Health check FAILED' && exit 1)"
+    - ssh $SSH_OPTS root@$DEPLOY_HOST "curl -sf http://localhost:5080/releases.json > /dev/null && echo 'releases.json OK' || (echo 'releases.json MISSING' && exit 1)"
+    - ssh $SSH_OPTS root@$DEPLOY_HOST "curl -sf http://localhost:5080/scan-results.json > /dev/null && echo 'scan-results.json OK' || (echo 'scan-results.json MISSING' && exit 1)"
+    - ssh $SSH_OPTS root@$DEPLOY_HOST "curl -sf -o /dev/null -w '%{http_code}' http://localhost:5080/manifest.json | grep -q 200 && echo 'manifest.json OK' || (echo 'manifest.json FAILED' && exit 1)"
+    - ssh $SSH_OPTS root@$DEPLOY_HOST "curl -sI http://localhost:5080/ | grep -E '^(X-|Referrer|Content-Security|Permissions)'"
+    - ssh $SSH_OPTS root@$DEPLOY_HOST "curl -s http://localhost:5080/ | grep -qi '<script[^>]*google-analytics' && echo 'TRACKING FOUND' && exit 1 || echo 'No tracking scripts - PASSED'"
     - echo "=== Deployment verified ==="
     - echo "Live at https://void.lightfoot.cloud"
   rules:
@@ -322,8 +327,6 @@ deploy-site:
     - if: $CI_COMMIT_BRANCH == "main"
       when: manual
       allow_failure: true
-  variables:
-    DEPLOY_HOST: "10.0.0.10"
 
 # ── SECURITY-SITE (marketing site website/) ──────
 # Defensive static analysis of website/ + Dockerfile headers.
