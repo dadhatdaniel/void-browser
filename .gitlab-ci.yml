@@ -305,16 +305,43 @@ deploy-site:
     - mkdir -p ~/.ssh
     - cp "$DEPLOY_SSH_KEY" ~/.ssh/id_ed25519
     - chmod 600 ~/.ssh/id_ed25519
-    - ssh-keyscan -p 22 $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
+    # Runner→host hairpin can briefly refuse :22 under load; retry keyscan.
+    - |
+      for i in 1 2 3 4 5 6; do
+        if ssh-keyscan -T 5 -p 22 "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null; then
+          echo "ssh-keyscan ok (attempt $i)"
+          break
+        fi
+        echo "ssh-keyscan failed (attempt $i) — sleep 5s"
+        sleep 5
+      done
   script:
     - echo "=== Deploying Void Browser Website ==="
-    - scp $SSH_OPTS website/index.html website/style.css website/Dockerfile website/robots.txt website/sitemap.xml website/ai.txt website/tdmrep.json website/favicon.ico website/favicon-32.png website/favicon-192.png website/favicon-512.png website/apple-touch-icon.png website/site.webmanifest website/manifest.json website/releases.json website/scan-results.json root@$DEPLOY_HOST:/mnt/user/appdata/lightfootcloud/websites/void-browser/
+    # Retry scp: concurrent runner jobs sometimes get "Connection refused" to host sshd.
+    - |
+      set -eu
+      DEST="root@${DEPLOY_HOST}:/mnt/user/appdata/lightfootcloud/websites/void-browser/"
+      FILES="website/index.html website/style.css website/Dockerfile website/robots.txt website/sitemap.xml website/ai.txt website/tdmrep.json website/favicon.ico website/favicon-32.png website/favicon-192.png website/favicon-512.png website/apple-touch-icon.png website/site.webmanifest website/manifest.json website/releases.json website/scan-results.json"
+      ok=0
+      for i in 1 2 3 4 5 6; do
+        if scp $SSH_OPTS $FILES "$DEST"; then
+          ok=1
+          echo "scp ok (attempt $i)"
+          break
+        fi
+        echo "scp failed (attempt $i) — sleep 8s (sshd refuse / hairpin?)"
+        sleep 8
+      done
+      test "$ok" = "1"
     # --pull=false: Hub metadata for nginx:alpine can hang and kill SSH.
     # Pull only when base is missing (90s cap). Use && throughout — a trailing
     # `; docker rm; docker run` after `build && stop` recreated the container
     # from a stale image when build failed / SSH client timed out.
     - |
-      ssh $SSH_OPTS root@$DEPLOY_HOST 'set -eu
+      set -eu
+      ok=0
+      for i in 1 2 3 4 5 6; do
+        if ssh $SSH_OPTS root@$DEPLOY_HOST 'set -eu
       cd /mnt/user/appdata/lightfootcloud/websites/void-browser
       if ! docker image inspect nginx:alpine >/dev/null 2>&1; then
         echo "nginx:alpine missing — pulling (90s cap)"
@@ -327,7 +354,15 @@ deploy-site:
       docker stop void-website 2>/dev/null || true
       docker rm void-website 2>/dev/null || true
       docker run -d --name void-website --restart unless-stopped -p 5080:80 --network proxynet --memory=128m --security-opt no-new-privileges:true void-website
-      echo "Container started"'
+      echo "Container started"'; then
+          ok=1
+          echo "remote deploy ok (attempt $i)"
+          break
+        fi
+        echo "remote deploy failed (attempt $i) — sleep 8s"
+        sleep 8
+      done
+      test "$ok" = "1"
     - sleep 5
     - ssh $SSH_OPTS root@$DEPLOY_HOST "curl -sf http://localhost:5080/ > /dev/null && echo 'Health check PASSED' || (echo 'Health check FAILED' && exit 1)"
     - ssh $SSH_OPTS root@$DEPLOY_HOST "curl -sf http://localhost:5080/releases.json > /dev/null && echo 'releases.json OK' || (echo 'releases.json MISSING' && exit 1)"
