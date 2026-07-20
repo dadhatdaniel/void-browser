@@ -308,7 +308,9 @@ deploy-site:
   script:
     - echo "=== Deploying Void Browser Website ==="
     - scp $SSH_OPTS website/index.html website/style.css website/Dockerfile website/robots.txt website/sitemap.xml website/ai.txt website/tdmrep.json website/favicon.ico website/favicon-32.png website/favicon-192.png website/favicon-512.png website/apple-touch-icon.png website/site.webmanifest website/manifest.json website/releases.json website/scan-results.json root@$DEPLOY_HOST:/mnt/user/appdata/lightfootcloud/websites/void-browser/
-    - ssh $SSH_OPTS root@$DEPLOY_HOST "cd /mnt/user/appdata/lightfootcloud/websites/void-browser && timeout 180 docker build -t void-website . && docker stop void-website 2>/dev/null; docker rm void-website 2>/dev/null; docker run -d --name void-website --restart unless-stopped -p 5080:80 --network proxynet --memory=128m --security-opt no-new-privileges:true void-website"
+    # --pull=false: host Docker Hub metadata fetch can hang (seen: stuck on
+    # "load metadata for nginx:alpine"); local base image is enough for this site.
+    - ssh $SSH_OPTS root@$DEPLOY_HOST "cd /mnt/user/appdata/lightfootcloud/websites/void-browser && timeout 180 docker build --pull=false -t void-website . && docker stop void-website 2>/dev/null; docker rm void-website 2>/dev/null; docker run -d --name void-website --restart unless-stopped -p 5080:80 --network proxynet --memory=128m --security-opt no-new-privileges:true void-website"
     - sleep 5
     - ssh $SSH_OPTS root@$DEPLOY_HOST "curl -sf http://localhost:5080/ > /dev/null && echo 'Health check PASSED' || (echo 'Health check FAILED' && exit 1)"
     - ssh $SSH_OPTS root@$DEPLOY_HOST "curl -sf http://localhost:5080/releases.json > /dev/null && echo 'releases.json OK' || (echo 'releases.json MISSING' && exit 1)"
