@@ -143,6 +143,8 @@ virus-scan:
     # Artifact upload failures after a green script must not mark the job failed
   allow_failure: true
   rules:
+    - if: $RPA_AFTER_RELEASE == "1"
+      when: never
     - if: $CI_COMMIT_BRANCH == "main"
       when: manual
       allow_failure: true
@@ -176,6 +178,8 @@ deploy-site:
     - echo "=== Deployment verified ==="
     - echo "Live at https://void.lightfoot.cloud"
   rules:
+    - if: $RPA_AFTER_RELEASE == "1"
+      when: never
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
         - website/**/*
@@ -260,6 +264,7 @@ rpa-windows:
   needs: []
   timeout: 2h
   allow_failure: true
+  resource_group: void-rpa-win
   variables:
     VOID_RPA_WIN_HOST: "10.0.0.28"
     VOID_RPA_WIN_USER: "rpa-win"
