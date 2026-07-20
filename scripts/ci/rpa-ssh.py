@@ -193,10 +193,18 @@ export DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus
 export VOID_RELEASES_JSON_URL=http://10.0.0.10:5080/releases.json
 export VOID_RPA_FORCE_DOWNLOAD={force_dl}
 export VOID_RPA_LINUX_SUDO_PASS='{sudo_q}'
+export VOID_SOFTWARE_RENDERING=1
+export WEBKIT_DISABLE_COMPOSITING_MODE=1
+export LIBGL_ALWAYS_SOFTWARE=1
+export VOID_RPA_CLEANUP=1
 mkdir -p {status} {remote_root}/artifacts/rpa {remote_root}/downloads/rpa
 chmod +x {remote_root}/scripts/run-rpa-linux.sh
 python3 -m pip install --user -q Pillow 2>/dev/null || true
 echo '{sudo_q}' | sudo -S DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xclip scrot xdotool 2>/dev/null || true
+# Disable apport crash dialogs stealing focus during RPA
+echo '{sudo_q}' | sudo -S systemctl stop apport.service 2>/dev/null || true
+echo '{sudo_q}' | sudo -S systemctl disable apport.service 2>/dev/null || true
+echo '{sudo_q}' | sudo -S bash -c 'echo enabled=0 > /etc/default/apport' 2>/dev/null || true
 cd {remote_root}
 ./scripts/run-rpa-linux.sh --scenarios '{scenarios}' > {status}/run.log 2>&1
 code=$?
