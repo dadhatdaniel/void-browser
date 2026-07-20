@@ -481,9 +481,15 @@ def main() -> int:
     )
 
     art = done.get("artifact_dir")
+
+    def _exit_code() -> int:
+        # Do not use `x or 1` — exit_code 0 is success and must be preserved.
+        ec = done.get("exit_code")
+        return 1 if ec is None else int(ec)
+
     if not art:
         print("[rpa] no artifact_dir", file=sys.stderr)
-        return int(done.get("exit_code") or 1)
+        return _exit_code()
 
     stamp = Path(str(art).replace("\\", "/")).name
     local_dir = Path(args.out) / stamp
@@ -501,7 +507,7 @@ def main() -> int:
         except Exception as e:  # noqa: BLE001
             print(f"[rpa] could not parse report: {e}")
 
-    return int(done.get("exit_code") or 1)
+    return _exit_code()
 
 
 if __name__ == "__main__":
