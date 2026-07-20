@@ -24,21 +24,25 @@ flowchart TD
 
 ## GitLab stage order
 
-`lint → security → trigger → sync → deploy → e2e → scan → rpa → notify`
+`lint → security-app → trigger → sync → deploy → security-site → e2e → scan → rpa → notify`
 
-`site-e2e` is in **e2e** (after **deploy**). It must not use `needs: []` — that raced the live `:5080` origin before `deploy-site` finished.
+`site-e2e` is in **e2e** (after **deploy** and **security-site**). It must not use `needs: []` — that raced the live `:5080` origin before `deploy-site` finished.
+
+`security-app` / `security-site` are **defensive** checks only (dependency audit, static greps, config/header hardening). They do not generate exploits. See [SECURITY.md](./SECURITY.md).
 
 ## Auto vs manual (Play)
 
 | Job | Stage | When it runs |
 |-----|-------|----------------|
 | `rustfmt` / `clippy` | lint | **Auto** on `main` + MRs |
-| `cargo-audit` / `license-check` | security | **Auto** on `main` + tags |
+| `cargo-audit` / `license-check` | security-app | **Auto** on `main` + tags |
+| `app-security` | security-app | **Auto** on `main` + MRs + tags |
 | `trigger-github-build` | trigger | **Auto** on `v*` tags (`needs: []` so it fires ASAP) |
 | `sync-releases-from-github` | sync | **Auto** on schedule / API `SYNC_RELEASES=1`; **Manual** on `main` |
 | `deploy-site` | deploy | **Auto** on `main` when `website/**` changes; **Manual** otherwise |
+| `site-security` | security-site | **Auto** on `main` + MRs (after deploy stage; live header probe is soft unless `SITE_SECURITY_LIVE=1`) |
 | `site-e2e` | e2e | **Auto** on every `main` push (after auto deploy when that job ran) |
-| `virus-scan` | scan | **Manual** only (main + tags) — do not automate |
+| `virus-scan` | scan | **Manual** only (main + tags) — binary/package VT; do not automate |
 | `rpa-windows` | rpa | **Auto** on `RPA_AFTER_RELEASE=1` or `website/releases.json` change; **Manual** otherwise |
 | `sync-rpa-win-repo` | notify | **Auto** on every `main` push |
 

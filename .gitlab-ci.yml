@@ -6,25 +6,30 @@
 #         Repo: https://github.com/dadhatdaniel/void-browser
 #
 # STAGE ORDER (logical):
-#   lint → security → trigger → sync → deploy → e2e → scan → rpa → notify
+#   lint → security-app → trigger → sync → deploy → security-site → e2e → scan → rpa → notify
 #
 # AUTO vs MANUAL (who clicks Play):
 #   AUTO on main push:
-#     rustfmt, clippy, cargo-audit, license-check,
-#     site-e2e, sync-rpa-win-repo
+#     rustfmt, clippy, cargo-audit, license-check, app-security,
+#     site-security, site-e2e, sync-rpa-win-repo
 #     deploy-site          — only when website/** changed
 #     rpa-windows          — only when website/releases.json changed
+#   AUTO on MR:
+#     rustfmt, clippy, app-security, site-security
 #   AUTO on v* tag:
-#     cargo-audit, license-check, trigger-github-build
+#     cargo-audit, license-check, app-security, trigger-github-build
 #   AUTO on schedule / API (SYNC_RELEASES=1):
 #     sync-releases-from-github
 #   AUTO on API (RPA_AFTER_RELEASE=1):
 #     rpa-windows only (all other jobs skipped)
 #   MANUAL (Play required):
-#     virus-scan           — main + tags (never auto)
+#     virus-scan           — main + tags (never auto; binary VT)
 #     deploy-site          — main when website/** did NOT change
 #     rpa-windows          — main/tag when not an auto-release path
 #     sync-releases-from-github — main (fallback; primary sync is GHA→GitLab)
+#
+# Security stages are DEFENSIVE only (audit / SAST greps / config / headers).
+# They do NOT generate exploits, PoCs, or scan third-party sites.
 #
 # CRITICAL: site-e2e must NOT use needs:[] — that raced ahead of deploy-site
 # and hit the live :5080 origin before the new site was deployed.
@@ -32,10 +37,11 @@
 
 stages:
   - lint
-  - security
+  - security-app
   - trigger
   - sync
   - deploy
+  - security-site
   - e2e
   - scan
   - rpa
@@ -83,10 +89,12 @@ clippy:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == "main"
 
-# ── SECURITY ─────────────────────────────────────
+# ── SECURITY-APP (Rust / Tauri / desktop) ────────
+# Defensive: Rust CVE audit, license policy, static config/IPC greps.
+# Does NOT analyze Windows binaries — that stays Manual virus-scan.
 
 cargo-audit:
-  stage: security
+  stage: security-app
   image: "${RUST_IMAGE}"
   before_script:
     - apt-get update -qq && apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
@@ -103,7 +111,7 @@ cargo-audit:
     - if: $CI_COMMIT_TAG
 
 license-check:
-  stage: security
+  stage: security-app
   image: "${RUST_IMAGE}"
   before_script:
     - apt-get update -qq && apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
@@ -117,6 +125,22 @@ license-check:
   rules:
     - if: $RPA_AFTER_RELEASE == "1"
       when: never
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_TAG
+
+# Static SAST-style greps: CSP, updater pin, dangerous capabilities, secrets, chrome eval.
+app-security:
+  stage: security-app
+  image: alpine:latest
+  needs: []
+  before_script:
+    - apk add --no-cache bash grep findutils
+  script:
+    - bash scripts/ci/app-security-check.sh
+  rules:
+    - if: $RPA_AFTER_RELEASE == "1"
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == "main"
     - if: $CI_COMMIT_TAG
 
@@ -135,7 +159,7 @@ license-check:
 # Manual fallback (no PAT): https://github.com/dadhatdaniel/void-browser/actions/workflows/build.yml
 #   → Run workflow → choose the tag.
 #
-# needs: [] — fire ASAP on tags; do not wait for slow cargo-audit.
+# needs: [] — fire ASAP on tags; do not wait for slow cargo-audit / app-security.
 
 trigger-github-build:
   stage: trigger
@@ -265,7 +289,7 @@ sync-releases-from-github:
 
 # ── DEPLOY WEBSITE ───────────────────────────────
 # Auto when website/** changes on main. Manual Play otherwise (redeploy).
-# No needs:[] — respects stage order after lint/security/sync.
+# No needs:[] — respects stage order after lint/security-app/sync.
 
 deploy-site:
   stage: deploy
@@ -301,6 +325,27 @@ deploy-site:
   variables:
     DEPLOY_HOST: "10.0.0.10"
 
+# ── SECURITY-SITE (marketing site website/) ──────
+# Defensive static analysis of website/ + Dockerfile headers.
+# Optional read-only header probe of our own :5080 origin (never third parties).
+# After deploy so auto website/** pipelines probe the freshly deployed origin.
+# No needs:[deploy-site] — same reason as site-e2e (manual deploy must not block).
+
+site-security:
+  stage: security-site
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache bash curl grep findutils
+  script:
+    - bash scripts/ci/site-security-check.sh
+  variables:
+    SITE_SECURITY_BASE: "http://10.0.0.10:5080"
+  rules:
+    - if: $RPA_AFTER_RELEASE == "1"
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+
 # ── SITE E2E SMOKE (every main push) ─────────────
 # Hits the live container on the deploy host (:5080). Cloudflare may challenge
 # https://void.lightfoot.cloud for bots — CI uses the origin port instead.
@@ -309,8 +354,8 @@ deploy-site:
 # Do NOT use needs:[] — that started e2e at pipeline start and raced deploy.
 # Do NOT use needs:[deploy-site] — deploy-site is always created on main (auto
 # or manual Play); a hard needs would block e2e until someone clicks Play on
-# non-website pushes. Stage order is correct: auto deploy blocks the e2e stage;
-# manual deploy has allow_failure so e2e proceeds against the current live site.
+# non-website pushes. Stage order is correct: auto deploy blocks later stages;
+# manual deploy has allow_failure so security-site/e2e proceed against live.
 
 site-e2e:
   stage: e2e

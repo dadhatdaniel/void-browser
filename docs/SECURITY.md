@@ -68,3 +68,20 @@ That is the enterprise control: **dual control** — repository/release access a
 
 - [UPDATE.md](./UPDATE.md) — CI secrets, `latest.json`, local signed builds  
 - [CODE_SIGNING.md](./CODE_SIGNING.md) — Windows/macOS OS identity (SmartScreen / Gatekeeper)
+- [RELEASE_PIPELINE.md](./RELEASE_PIPELINE.md) — GitLab stage order including security jobs
+
+## CI security stages (defensive only)
+
+GitLab splits security into two stages. Both are **hardening / vulnerability finders**, not exploit generators. They never write PoCs, attack payloads, or scan third-party sites.
+
+| Stage | Jobs | What they catch | What they do **not** do |
+|-------|------|-----------------|-------------------------|
+| **security-app** | `cargo-audit`, `license-check`, `app-security` | Rust crate CVEs; blocked licenses (SSPL/BUSL); missing CSP; unpinned/cleartext updater URL; dangerous Tauri IPC grants (shell execute, broad fs/http, updater plugin to webview); cleartext secrets in app sources; `eval` / `new Function` in chrome UI (`src/`) | Analyze release `.exe` binaries; VirusTotal; offensive webview fuzzing; exploit generation |
+| **security-site** | `site-security` | Missing nginx security headers in `website/Dockerfile`; tracking scripts; `eval`/mixed-content/`javascript:` sinks; secret-looking strings in `website/`; optional read-only header probe of **our** `:5080` / void origin | nikto/nmap/sqlmap; scanning other people’s sites; exploit PoCs |
+
+Scripts:
+
+- `scripts/ci/app-security-check.sh` — run locally from repo root
+- `scripts/ci/site-security-check.sh` — same; set `SITE_SECURITY_LIVE=1` to fail if live headers are unreachable
+
+**Manual:** `virus-scan` (stage `scan`) remains Play-only for VirusTotal of the live site + GitHub release packages. That is the Windows binary / package reputation gate — keep it out of the auto security stages.
