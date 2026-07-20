@@ -224,7 +224,7 @@ Job: `rpa-windows` in `.gitlab-ci.yml` → `scripts/ci/rpa-winrm.py`.
 | Manual play on `main` / `v*` | Same job, no new tag needed |
 | `main` push | `sync-rpa-win-repo` refreshes `C:\void-browser` on the VM |
 
-Artifacts: GitLab job uploads slim `artifacts/rpa-upload/` (JPEG + `report.json`). Full PNGs mirror to `/mnt/user/appdata/void-rpa-artifacts/<stamp>/` when the runner mounts that share.
+Artifacts: full PNGs + `report.json` mirror to `/mnt/user/appdata/void-rpa-artifacts/<stamp>/` (runner share mount). GitLab job artifact upload is disabled on this instance (coordinator 500). Optional local JPEG pack: `python3 scripts/ci/prepare-rpa-upload.py`.
 
 ### Path B — GitHub Actions (secondary)
 

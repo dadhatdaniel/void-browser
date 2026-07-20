@@ -509,21 +509,18 @@ rpa-windows:
       fi
       echo "Artifacts: $latest"
       test -f "${latest}report.json"
-      # Prepare slim upload BEFORE check so failed suites still have an archive to upload.
+      # Optional local JPEG pack for humans; GitLab artifact upload is disabled
+      # (coordinator returns 500/invalid argument even for ~700KB zips on this instance).
+      # Full PNGs + report live on VOID_RPA_MIRROR_DIR (Unraid share).
       python3 scripts/ci/prepare-rpa-upload.py \
         --src artifacts/rpa \
-        --dest artifacts/rpa-upload
-      ls -la artifacts/rpa-upload | head -40
-      du -sh artifacts/rpa-upload artifacts/rpa || true
+        --dest artifacts/rpa-upload || true
       python3 scripts/ci/check-rpa-report.py "${latest}report.json"
   after_script:
     - |
-      # Best-effort: rebuild upload pack + host mirror even if script failed mid-way.
+      # Persist full PNGs on the Unraid share (runner mounts VOID_RPA_MIRROR_DIR).
+      # Do NOT declare GitLab `artifacts:` here — upload FATAL 500 masks suite results.
       set +e
-      pip install --no-cache-dir pillow >/dev/null 2>&1
-      python3 scripts/ci/prepare-rpa-upload.py \
-        --src artifacts/rpa \
-        --dest artifacts/rpa-upload 2>/dev/null || true
       latest=$(ls -1dt artifacts/rpa/*/ 2>/dev/null | head -n1 || true)
       if [ -n "$latest" ] && [ -d "${VOID_RPA_MIRROR_DIR:-}" ]; then
         stamp=$(basename "$latest")
@@ -533,13 +530,6 @@ rpa-windows:
       else
         echo "Mirror skip (VOID_RPA_MIRROR_DIR not mounted or no artifacts)"
       fi
-  artifacts:
-    when: always
-    # Tiny JPEG pack + report only. Upload failure must not erase suite signal:
-    # job already has allow_failure:true; keep archive small to avoid coordinator 500.
-    paths:
-      - artifacts/rpa-upload/
-    expire_in: 14 days
   rules:
     # Automatic: pipeline created by GitHub release sync (RPA_AFTER_RELEASE=1)
     - if: $RPA_AFTER_RELEASE == "1"

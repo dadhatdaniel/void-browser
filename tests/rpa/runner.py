@@ -229,8 +229,47 @@ class RpaSession:
             pass
         time.sleep(0.25)
 
+    def _click_url_bar_region(self) -> bool:
+        """
+        Click the chrome address bar by geometry.
+
+        Ctrl+L only works when the Tauri UI document has focus. After a page load,
+        WebView2 usually owns keyboard focus, so ^l never reaches app.js — which is
+        why RPA was stuck on New Tab while blank-checks still passed.
+        """
+        left, top, right, bottom = self.window_rect()
+        w = right - left
+        h = bottom - top
+        if w < 200 or h < 200:
+            return False
+        # Tab strip ~36px, toolbar/url row centered ~55–75px from top of client area.
+        abs_x = left + w // 2
+        abs_y = top + max(52, min(90, int(h * 0.07)))
+        try:
+            from pywinauto import mouse
+
+            mouse.click(coords=(abs_x, abs_y))
+            time.sleep(0.25)
+            return True
+        except Exception:  # noqa: BLE001
+            try:
+                # Fallback: relative click on the window wrapper.
+                self.win.click_input(coords=(w // 2, max(52, min(90, int(h * 0.07)))))
+                time.sleep(0.25)
+                return True
+            except Exception:  # noqa: BLE001
+                return False
+
     def focus_url_bar(self) -> None:
         self.ensure_foreground()
+        # Prefer a real click into the URL field (works even when WebView2 has focus).
+        clicked = self._click_url_bar_region()
+        if clicked:
+            # Select-all so the next type_keys replaces any leftover text.
+            self.type_keys("^a")
+            time.sleep(0.12)
+            return
+        # Last resort: Ctrl+L (only works if chrome UI already has focus).
         self.type_keys("^l")
         time.sleep(0.35)
 
