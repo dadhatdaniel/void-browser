@@ -226,7 +226,22 @@ Job: `rpa-windows` in `.gitlab-ci.yml` → `scripts/ci/rpa-winrm.py`.
 | Manual play on `main` / `v*` | Same job, no new tag needed |
 | `main` push | `sync-rpa-win-repo` (stage `sync`, before `rpa`) refreshes `C:\void-browser` |
 
-Artifacts: full PNGs + `report.json` mirror to `/mnt/user/appdata/void-rpa-artifacts/<stamp>/` (runner share mount). GitLab job artifact upload is disabled on this instance (coordinator 500). Optional local JPEG pack: `python3 scripts/ci/prepare-rpa-upload.py`.
+Artifacts: full PNGs + `report.json` mirror to `/mnt/user/appdata/void-rpa-artifacts/<stamp>/` (runner share mount). **GitLab `artifacts:` upload stays disabled** on RPA jobs (coordinator 500 masks suite results). Optional local JPEG pack: `python3 scripts/ci/prepare-rpa-upload.py`.
+
+Runner must bind-mount the Unraid share into job containers (`config.toml` → `runners.docker.volumes`):
+`/mnt/user/appdata/void-rpa-artifacts:/mnt/user/appdata/void-rpa-artifacts:rw`.
+CI sets `VOID_RPA_MIRROR_DIR` and fails `before_script` if the mount is missing.
+Windows teardown uninstall is hard-capped (`VOID_RPA_TEARDOWN_TIMEOUT`, default **120s**) so a stuck NSIS uninstall cannot wedge `done.json` for the full CI wait.
+
+**Suite self-heal** (WinRM / SSH wrappers at job start, before scheduling the suite):
+
+1. Kill orphan `void-browser` / stuck RPA processes  
+2. Dismiss update / focus-stealer dialogs (best-effort; Windows also dismisses inside the harness)  
+3. Require Active interactive session (Windows Autologon) or GNOME/Xorg + `DISPLAY` (Linux)  
+4. If framebuffer/desktop is dead (black screen / no session): **reboot guest once**, wait for healthy session, continue  
+5. Clear hung previous runs (`done.json` abort + scheduled-task cleanup)
+
+Skip with `--no-self-heal` or `VOID_RPA_SKIP_SELF_HEAL=1`.
 
 ### Path A2 — GitLab → rpa-linux (parallel full-ish suite)
 
@@ -255,7 +270,12 @@ Default scenarios (Windows-parity names):
 
 **Linux-impossible / limited:** real AT-SPI context menus, reliable Install & Relaunch button clicks, WebView2-style Google challenge classification. Omnibox focus uses click-chrome + Ctrl+L (not UIA Edit).
 
-**QEMU/no-GPU guests:** set `VOID_SOFTWARE_RENDERING=1` (default in `run-rpa-linux.sh`) so WebKit skips forced HW compositing. Apport crash dialogs are disabled in the SSH wrapper. If the X framebuffer goes solid black after a WebKit crash, reboot `void-test-linux` (GDM autologin) before re-running.
+**QEMU/QXL guests:** `void-test-linux` uses QXL (`vram=64MB`). WebKit HW compositing often paints a **solid black upper half** of the webview (chrome OK, bottom tiles may still draw). Mitigation (default in `run-rpa-linux.sh` / `rpa-ssh.py` / `runner_linux._launch_env`):
+
+- `VOID_SOFTWARE_RENDERING=1` → binary forces `WEBKIT_DISABLE_COMPOSITING_MODE=1`
+- `LIBGL_ALWAYS_SOFTWARE=1`, `GALLIUM_DRIVER=llvmpipe`, `GSK_RENDERER=cairo`
+
+Linux RPA Pillow checks **fail** (never silent-PASS) on uniform blank, low `content_mean` / mostly-black frames, **and** the top-half black paint glitch. Apport dialogs are disabled in the SSH wrapper. Suite self-heal reboots once if the X framebuffer is solid black after a WebKit crash. Optional: bump QXL `vram`/`ram` via libvirt if tiles still glitch under software GL.
 
 Requires **`VOID_RPA_LINUX_PASS`**. Desktop: GDM autologin — see `scripts/ci/configure-rpa-linux-desktop.sh`.
 

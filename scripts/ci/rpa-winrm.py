@@ -320,7 +320,44 @@ else {{ Write-Output '' }}
         print(f"  ... still running ({int(deadline - time.time())}s left)", flush=True)
 
     if not done_obj:
-        raise TimeoutError(f"Timed out after {timeout_sec}s waiting for RPA done.json")
+        print(
+            f"[rpa] timed out after {timeout_sec}s — aborting guest task + writing done.json",
+            flush=True,
+        )
+        log_quote = ps_quote(status + "\\run.log")
+        root_quote = ps_quote(remote_root)
+        done_quote = ps_quote(done_path)
+        abort_ps = f"""
+$ErrorActionPreference = 'Continue'
+Stop-ScheduledTask -TaskName 'VoidBrowserRPA' -ErrorAction SilentlyContinue
+Unregister-ScheduledTask -TaskName 'VoidBrowserRPA' -Confirm:$false -ErrorAction SilentlyContinue
+foreach ($n in @('void-browser','python','pythonw','uninstall')) {{
+  Get-Process -Name $n -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+}}
+$latest = Get-ChildItem (Join-Path {root_quote} 'artifacts\\rpa') -Directory -ErrorAction SilentlyContinue |
+  Sort-Object Name -Descending | Select-Object -First 1
+@{{
+  exit_code = 98
+  finished_at = (Get-Date).ToString('o')
+  aborted = $true
+  reason = 'ci-wait-timeout'
+  artifact_dir = if ($latest) {{ $latest.FullName }} else {{ $null }}
+  log = {log_quote}
+}} | ConvertTo-Json | Set-Content -Path {done_quote} -Encoding UTF8
+Get-Content -Raw {done_quote}
+"""
+        _c, o, _e = run_ps(sess, abort_ps)
+        text = (o or "").strip()
+        if text:
+            try:
+                done_obj = json.loads(text)
+            except json.JSONDecodeError:
+                done_obj = None
+        if not done_obj:
+            raise TimeoutError(
+                f"Timed out after {timeout_sec}s waiting for RPA done.json "
+                "(guest abort also failed)"
+            )
 
     print(
         f"[rpa] exit_code={done_obj.get('exit_code')} "
@@ -393,6 +430,205 @@ def mirror_to_unraid(local_dir: Path, stamp: str) -> None:
             print(f"[rpa] mirror skip {base}: {e}")
 
 
+# Suite-startup cleanup on the guest (orphans, hung tasks, abort stale done.json).
+SELF_HEAL_CLEANUP_PS = r"""
+$ErrorActionPreference = 'Continue'
+Write-Output '=== SELF_HEAL_CLEANUP ==='
+
+# Kill orphan Void Browser / WebView2 / hung RPA python
+foreach ($n in @('void-browser','Void','msedgewebview2','msiexec')) {
+  Get-Process -Name $n -ErrorAction SilentlyContinue | ForEach-Object {
+    Write-Output ("KILL name={0} pid={1}" -f $_.ProcessName, $_.Id)
+    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+  }
+}
+Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+  $_.CommandLine -and (
+    $_.CommandLine -match 'runner\.py|run-rpa-windows|pywinauto|void-rpa-status'
+  )
+} | ForEach-Object {
+  Write-Output ("KILL pid={0} name={1}" -f $_.ProcessId, $_.Name)
+  Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+}
+
+# Stop / unregister hung RPA scheduled tasks
+Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {
+  $_.TaskName -match 'void|rpa|Void|RPA'
+} | ForEach-Object {
+  if ($_.State -eq 'Running') {
+    Write-Output ("STOP_TASK={0}" -f $_.TaskName)
+    Stop-ScheduledTask -TaskName $_.TaskName -ErrorAction SilentlyContinue
+  }
+  if ($_.TaskName -eq 'VoidBrowserRPA') {
+    Unregister-ScheduledTask -TaskName $_.TaskName -Confirm:$false -ErrorAction SilentlyContinue
+    Write-Output 'UNREGISTERED=VoidBrowserRPA'
+  }
+}
+
+# Abort incomplete prior runs so CI waiters cannot hang on stale status dirs
+$statusRoot = 'C:\Users\rpa-win\void-rpa-status'
+if (Test-Path $statusRoot) {
+  Get-ChildItem $statusRoot -Directory -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 5 | ForEach-Object {
+      $done = Join-Path $_.FullName 'done.json'
+      if (-not (Test-Path $done)) {
+        @{
+          exit_code = 99
+          finished_at = (Get-Date).ToString('o')
+          aborted = $true
+          reason = 'suite-self-heal'
+          artifact_dir = $null
+        } | ConvertTo-Json -Compress | Set-Content -Path $done -Encoding UTF8
+        Write-Output ("ABORT_DONE={0}" -f $done)
+      }
+    }
+}
+
+# Best-effort dismiss Update available / modal focus steals
+try {
+  $wshell = New-Object -ComObject wscript.shell
+  $null = $wshell.AppActivate('Void')
+  Start-Sleep -Milliseconds 150
+  $wshell.SendKeys('{ESC}')
+  Start-Sleep -Milliseconds 80
+  $wshell.SendKeys('{ESC}')
+  Write-Output 'DISMISS_ESC=ok'
+} catch {
+  Write-Output ('DISMISS_ESC=skip ' + $_)
+}
+Write-Output 'SELF_HEAL_CLEANUP_OK'
+"""
+
+
+def probe_session_health(sess) -> tuple[bool, str]:
+    """Return (healthy, detail) for Active console + non-black desktop."""
+    code, out, err = run_ps(
+        sess,
+        r"""
+$ErrorActionPreference = 'Continue'
+$q = (query user 2>&1 | Out-String)
+Write-Output '---QUERY---'
+Write-Output $q
+$exp = Get-Process explorer -ErrorAction SilentlyContinue | Select-Object -First 1
+Write-Output ("explorer_session=" + $(if ($exp) { $exp.SessionId } else { 'none' }))
+$active = ($q -match 'Active')
+Write-Output ("active=" + $active)
+
+# Sample primary screen luminance (black / locked desktop → mean ~0)
+$mean = -1
+try {
+  Add-Type -AssemblyName System.Windows.Forms,System.Drawing -ErrorAction Stop
+  $b = [Windows.Forms.Screen]::PrimaryScreen.Bounds
+  $bmp = New-Object Drawing.Bitmap $b.Width, $b.Height
+  $g = [Drawing.Graphics]::FromImage($bmp)
+  $g.CopyFromScreen($b.Location, [Drawing.Point]::Empty, $b.Size)
+  $g.Dispose()
+  $sum = 0L; $n = 0
+  for ($y = 0; $y -lt $bmp.Height; $y += 24) {
+    for ($x = 0; $x -lt $bmp.Width; $x += 24) {
+      $c = $bmp.GetPixel($x, $y)
+      $sum += ([int]$c.R + [int]$c.G + [int]$c.B) / 3
+      $n++
+    }
+  }
+  $bmp.Dispose()
+  if ($n -gt 0) { $mean = [math]::Round(($sum / $n), 1) }
+} catch {
+  Write-Output ("screen_probe_err=" + $_)
+}
+Write-Output ("screen_mean=" + $mean)
+if (-not $active) {
+  Write-Output 'HEALTH=no_active_session'
+} elseif ($mean -ge 0 -and $mean -lt 8) {
+  Write-Output 'HEALTH=black_framebuffer'
+} else {
+  Write-Output 'HEALTH=ok'
+}
+""",
+    )
+    text = (out or "") + "\n" + (err or "")
+    print(text, flush=True)
+    if "HEALTH=ok" in text:
+        return True, "Active session + desktop not black"
+    if "HEALTH=black_framebuffer" in text:
+        return False, "black framebuffer / locked desktop"
+    if "HEALTH=no_active_session" in text or "Active" not in text:
+        return False, "no Active console session (Autologon?)"
+    # Probe failed to classify — treat Active + explorer as good enough
+    if "Active" in text and "explorer_session=none" not in text:
+        return True, "Active session (screen probe inconclusive)"
+    return False, f"unhealthy (exit={code})"
+
+
+def reboot_and_wait_active(timeout_sec: int = 360) -> None:
+    """Reboot rpa-win once and wait for WinRM + Active console."""
+    print("[rpa] issuing Restart-Computer -Force ...", flush=True)
+    try:
+        run_ps(session_from_env(), "Restart-Computer -Force")
+    except Exception as e:  # noqa: BLE001
+        print(f"[rpa] reboot connection dropped (expected): {e}", flush=True)
+    time.sleep(15)
+    deadline = time.time() + timeout_sec
+    print(f"[rpa] waiting for WinRM + Active session (max {timeout_sec}s)...", flush=True)
+    while time.time() < deadline:
+        try:
+            sess = session_from_env()
+            code, out, _err = run_ps(sess, "Write-Output 'pong'")
+            if code == 0 and "pong" in out:
+                ok, detail = probe_session_health(sess)
+                if ok:
+                    print(f"[rpa] post-reboot healthy: {detail}", flush=True)
+                    return
+                print(f"[rpa] WinRM up but not healthy yet: {detail}", flush=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"[rpa] wait: {e}", flush=True)
+        time.sleep(8)
+    raise TimeoutError(f"Guest did not become healthy within {timeout_sec}s after reboot")
+
+
+def self_heal(sess, *, allow_reboot: bool = True) -> None:
+    """
+    Suite startup self-heal on void-rpa-windows:
+      1) kill orphan Void / stuck RPA processes
+      2) dismiss update/modal focus (best-effort)
+      3) require Active interactive session (Autologon)
+      4) if framebuffer dead / no desktop → reboot once, then continue
+      5) clear hung previous runs (done.json / scheduled tasks)
+    """
+    print("[rpa] suite self-heal starting...", flush=True)
+    code, out, err = run_ps(sess, SELF_HEAL_CLEANUP_PS)
+    print(out, flush=True)
+    if err.strip():
+        print(err, file=sys.stderr)
+    if "SELF_HEAL_CLEANUP_OK" not in out:
+        print(f"[rpa] self-heal cleanup warning (exit {code})", flush=True)
+
+    ok, detail = probe_session_health(sess)
+    if ok:
+        print(f"[rpa] self-heal OK: {detail}", flush=True)
+        return
+
+    print(f"[rpa] desktop unhealthy: {detail}", flush=True)
+    if not allow_reboot:
+        raise RuntimeError(
+            f"RPA guest unhealthy and reboot disabled: {detail}. "
+            "Re-apply Autologon (scripts/ci/apply-rpa-autologon.py) or open VNC for diagnosis."
+        )
+
+    print("[rpa] rebooting guest once to recover session/framebuffer...", flush=True)
+    reboot_and_wait_active()
+    sess2 = session_from_env()
+    code, out, err = run_ps(sess2, SELF_HEAL_CLEANUP_PS)
+    print(out, flush=True)
+    ok2, detail2 = probe_session_health(sess2)
+    if not ok2:
+        raise RuntimeError(
+            f"RPA guest still unhealthy after reboot: {detail2}. "
+            "Check Autologon / Windows Update / VNC http://10.0.0.10:5702/"
+        )
+    print(f"[rpa] self-heal recovered after reboot: {detail2}", flush=True)
+
+
 def wait_for_github_release(tag: str, timeout_sec: int = 1200) -> None:
     if not tag:
         return
@@ -448,9 +684,19 @@ def main() -> int:
     parser.add_argument("--release-tag", default=os.environ.get("RELEASE_TAG", ""))
     parser.add_argument("--wait-github", action="store_true")
     parser.add_argument("--out", default=str(ROOT / "artifacts" / "rpa"))
+    parser.add_argument(
+        "--no-self-heal",
+        action="store_true",
+        help="Skip suite-startup self-heal (orphans / session / one reboot)",
+    )
     args = parser.parse_args()
 
     sess = session_from_env()
+    skip_heal = args.no_self_heal or os.environ.get("VOID_RPA_SKIP_SELF_HEAL", "").strip() in (
+        "1",
+        "true",
+        "yes",
+    )
 
     if args.sync_repo_only:
         sync_repo(sess, args.remote_root)
@@ -469,6 +715,11 @@ def main() -> int:
         sync_repo(sess, args.remote_root)
     if args.push_harness and not args.no_push_harness:
         push_harness_files(sess, args.remote_root, ROOT)
+
+    if not skip_heal:
+        # Reconnect after possible reboot inside self_heal
+        self_heal(sess, allow_reboot=True)
+        sess = session_from_env()
 
     done = schedule_and_wait(
         sess,

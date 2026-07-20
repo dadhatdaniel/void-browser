@@ -23,10 +23,14 @@ export VOID_RPA_DOWNLOAD_DIR="${VOID_RPA_DOWNLOAD_DIR:-$ROOT/downloads/rpa}"
 export VOID_RPA_ARTIFACTS="${VOID_RPA_ARTIFACTS:-$ROOT/artifacts/rpa}"
 # Always-run teardown removes staged AppImages (parity with Windows uninstall).
 export VOID_RPA_CLEANUP="${VOID_RPA_CLEANUP:-1}"
-# QEMU guests lack DRI3 — software WebKit by default (see runner_linux._launch_env).
+# QEMU/QXL guests black out under WebKit HW compositing — software path by default.
 export VOID_SOFTWARE_RENDERING="${VOID_SOFTWARE_RENDERING:-1}"
 export WEBKIT_DISABLE_COMPOSITING_MODE="${WEBKIT_DISABLE_COMPOSITING_MODE:-1}"
 export LIBGL_ALWAYS_SOFTWARE="${LIBGL_ALWAYS_SOFTWARE:-1}"
+export GALLIUM_DRIVER="${GALLIUM_DRIVER:-llvmpipe}"
+export MESA_LOADER_DRIVER_OVERRIDE="${MESA_LOADER_DRIVER_OVERRIDE:-llvmpipe}"
+export GSK_RENDERER="${GSK_RENDERER:-cairo}"
+unset WEBKIT_FORCE_COMPOSITING_MODE 2>/dev/null || true
 
 APPIMAGE_ARG=()
 while [[ $# -gt 0 ]]; do

@@ -86,9 +86,14 @@ class ScenarioResult:
 # Env honored by Void builds that include updater::updater_disabled() (alpha.18+).
 # Older release binaries ignore it; dismiss_update_* remains the fallback.
 VOID_DISABLE_UPDATER_ENV = "VOID_DISABLE_UPDATER"
+# Skip WebView2 clear_on_exit during RPA so cookies/cache survive kill/relaunch.
+VOID_DISABLE_CLEAR_ON_EXIT_ENV = "VOID_DISABLE_CLEAR_ON_EXIT"
 
 # Hard cap so a modal / UIA stall cannot wedge the suite until the CI 30m timeout.
 DEFAULT_SCENARIO_TIMEOUT_SEC = float(os.environ.get("VOID_RPA_SCENARIO_TIMEOUT", "180"))
+# Teardown uninstall must never wedge done.json for the full CI wait (job 1507 hang).
+DEFAULT_TEARDOWN_TIMEOUT_SEC = float(os.environ.get("VOID_RPA_TEARDOWN_TIMEOUT", "120"))
+DEFAULT_UNINSTALL_CMD_TIMEOUT_SEC = float(os.environ.get("VOID_RPA_UNINSTALL_TIMEOUT", "60"))
 
 
 class RpaSession:
@@ -114,6 +119,9 @@ class RpaSession:
             env.pop(VOID_DISABLE_UPDATER_ENV, None)
         else:
             env[VOID_DISABLE_UPDATER_ENV] = "1"
+        # Always disable clear_on_exit under RPA unless the suite opts out.
+        if os.environ.get(VOID_DISABLE_CLEAR_ON_EXIT_ENV, "1").strip() != "0":
+            env[VOID_DISABLE_CLEAR_ON_EXIT_ENV] = "1"
         return env
 
     def start(
@@ -443,6 +451,15 @@ def analyze_content_region(image_path: Path) -> dict[str, Any]:
     elif black_ratio >= 0.98 and stddev < 4.0:
         blank = True
         reason = f"near-black empty content (black={black_ratio:.2f} std={stddev:.1f})"
+    elif mean < 10.0 and stddev < 10.0:
+        # Dead/black WebView — not dark themed new-tab (those keep branding variance).
+        blank = True
+        reason = f"content_mean too low (mean={mean:.1f} black={black_ratio:.2f})"
+    elif mean < 18.0 and black_ratio >= 0.90 and stddev < 12.0:
+        blank = True
+        reason = (
+            f"content_mean too low (mean={mean:.1f} black={black_ratio:.2f} std={stddev:.1f})"
+        )
 
     return {
         "blank": blank,
@@ -2075,7 +2092,7 @@ def kill_void_browser_processes() -> str:
             ["taskkill", "/F", "/IM", "void-browser.exe", "/T"],
             capture_output=True,
             text=True,
-            timeout=45,
+            timeout=15,
             check=False,
         )
         # 128 = process not found — treat as OK
@@ -2085,6 +2102,27 @@ def kill_void_browser_processes() -> str:
         return f"taskkill exit={proc.returncode}: {(proc.stderr or proc.stdout or '').strip()}"
     except Exception as e:  # noqa: BLE001
         return f"taskkill error: {e}"
+
+
+def _kill_uninstall_helpers() -> str:
+    """Best-effort stop stuck NSIS uninstall.exe after a teardown timeout."""
+    if sys.platform != "win32":
+        return "skipped"
+    notes: list[str] = []
+    for image in ("uninstall.exe", "void-browser.exe"):
+        try:
+            proc = subprocess.run(
+                ["taskkill", "/F", "/IM", image, "/T"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            if proc.returncode not in (0, 128):
+                notes.append(f"{image} exit={proc.returncode}")
+        except Exception as e:  # noqa: BLE001
+            notes.append(f"{image} error={e}")
+    return "; ".join(notes) if notes else "ok"
 
 
 def _void_uninstall_registry_commands() -> list[tuple[str, str]]:
@@ -2156,19 +2194,14 @@ def _installed_void_exe_paths() -> list[str]:
     return [str(p) for p in VOID_INSTALL_CANDIDATES if p.is_file()]
 
 
-def uninstall_void_browser() -> dict[str, Any]:
-    """
-    Always-run teardown: stop Void Browser and uninstall any NSIS/MSI copy.
-
-    Idempotent — already uninstalled is OK (ok=True).
-    Does not delete portable dist\\ or downloads\\ copies used by the harness.
-    """
+def _uninstall_void_browser_inner(cmd_timeout: float) -> dict[str, Any]:
+    """Inner uninstall body (no wall-clock wrapper)."""
     detail_parts: list[str] = []
     ok = True
 
     kill_detail = kill_void_browser_processes()
     detail_parts.append(f"kill: {kill_detail}")
-    time.sleep(1.0)
+    time.sleep(0.5)
 
     cmds = _void_uninstall_registry_commands()
     if not cmds:
@@ -2197,7 +2230,7 @@ def uninstall_void_browser() -> dict[str, Any]:
                 shell=True,
                 capture_output=True,
                 text=True,
-                timeout=180,
+                timeout=cmd_timeout,
                 check=False,
             )
             detail_parts.append(
@@ -2207,11 +2240,18 @@ def uninstall_void_browser() -> dict[str, Any]:
             # NSIS often returns 0; some return 1 if already gone — still check leftovers.
             if proc.returncode not in (0, 1):
                 ok = False
+        except subprocess.TimeoutExpired:
+            ok = False
+            helper = _kill_uninstall_helpers()
+            detail_parts.append(
+                f"uninstall {display!r} timed out after {cmd_timeout:.0f}s "
+                f"(killed helpers: {helper})"
+            )
         except Exception as e:  # noqa: BLE001
             ok = False
             detail_parts.append(f"uninstall {display!r} error: {e}")
 
-    time.sleep(1.5)
+    time.sleep(0.5)
     leftovers = _installed_void_exe_paths()
     # Re-check registry — success if no Void Uninstall entries and no install-dir exe.
     still_reg = _void_uninstall_registry_commands()
@@ -2224,6 +2264,46 @@ def uninstall_void_browser() -> dict[str, Any]:
         detail_parts.append("verified clean (no install-dir exe / Uninstall keys)")
 
     return {"ok": ok, "detail": "; ".join(detail_parts), "commands": ran}
+
+
+def uninstall_void_browser(
+    *,
+    timeout_sec: Optional[float] = None,
+    cmd_timeout_sec: Optional[float] = None,
+) -> dict[str, Any]:
+    """
+    Always-run teardown: stop Void Browser and uninstall any NSIS/MSI copy.
+
+    Idempotent — already uninstalled is OK (ok=True).
+    Does not delete portable dist\\ or downloads\\ copies used by the harness.
+
+    Hard wall-clock cap (default 120s) so a stuck uninstall.exe cannot wedge
+    the suite until the CI 30-minute done.json wait (see job 1507).
+    """
+    wall = DEFAULT_TEARDOWN_TIMEOUT_SEC if timeout_sec is None else float(timeout_sec)
+    cmd_t = (
+        DEFAULT_UNINSTALL_CMD_TIMEOUT_SEC
+        if cmd_timeout_sec is None
+        else float(cmd_timeout_sec)
+    )
+    if wall <= 0:
+        return _uninstall_void_browser_inner(cmd_t)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        fut = pool.submit(_uninstall_void_browser_inner, cmd_t)
+        try:
+            return fut.result(timeout=wall)
+        except FuturesTimeoutError:
+            helper = _kill_uninstall_helpers()
+            return {
+                "ok": False,
+                "detail": (
+                    f"teardown hard-timeout after {wall:.0f}s "
+                    f"(killed helpers: {helper})"
+                ),
+                "commands": [],
+                "timed_out": True,
+            }
 
 
 def write_report(out_dir: Path, exe: Path, results: list[ScenarioResult], meta: dict[str, Any]) -> Path:
@@ -2317,6 +2397,19 @@ def main() -> int:
     print(f"Artifacts: {out_dir}")
     print(f"Scenarios: {names}")
     sys.stdout.flush()
+
+    # Suite startup: kill orphan Void / prior RPA leftovers before first launch.
+    try:
+        kill_detail = kill_void_browser_processes()
+        print(f"Startup kill orphans: {kill_detail}", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"Startup kill soft-fail: {e}", flush=True)
+    try:
+        detail = dismiss_update_dialogs_until_clear(settle_sec=0.2, hard_timeout=3.0)
+        if detail != "absent":
+            print(f"Startup update dismiss: {detail}", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"Startup update dismiss soft-fail: {e}", flush=True)
 
     results: list[ScenarioResult] = []
     session: Optional[RpaSession] = None
@@ -2472,8 +2565,13 @@ def main() -> int:
             except Exception:  # noqa: BLE001
                 pass
         # Always-run cleanup: uninstall NSIS/MSI Void Browser so the VM stays clean.
+        # Hard-capped — must not block done.json for the full CI wait.
         try:
-            print("-- teardown uninstall_void_browser --", flush=True)
+            print(
+                f"-- teardown uninstall_void_browser "
+                f"(max {DEFAULT_TEARDOWN_TIMEOUT_SEC:.0f}s) --",
+                flush=True,
+            )
             teardown = uninstall_void_browser()
             status = "PASS" if teardown.get("ok") else "FAIL"
             print(f"  {status}: {teardown.get('detail', '')}", flush=True)

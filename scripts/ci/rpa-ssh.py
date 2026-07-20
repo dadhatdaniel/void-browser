@@ -97,6 +97,201 @@ def ensure_desktop_session(client) -> None:
         )
 
 
+def probe_desktop_health(client) -> tuple[bool, str]:
+    """Return (healthy, detail) for GNOME/Xorg + non-black framebuffer."""
+    code, out, err = run(
+        client,
+        r"""
+set +e
+export DISPLAY=:0
+export XDG_RUNTIME_DIR=/run/user/$(id -u)
+export DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus
+# Prefer GDM Xauthority when present
+for xa in "$XDG_RUNTIME_DIR/gdm/Xauthority" "$HOME/.Xauthority"; do
+  if [ -f "$xa" ]; then export XAUTHORITY="$xa"; break; fi
+done
+test -S "$XDG_RUNTIME_DIR/bus" && echo BUS_OK || echo BUS_MISSING
+pgrep -x gnome-shell >/dev/null && echo SHELL_OK || echo SHELL_MISSING
+pgrep -x Xorg >/dev/null && echo XORG_OK || echo XORG_MISSING
+echo "DISPLAY=$DISPLAY"
+# Wake / unblank before sampling
+xset dpms force on 2>/dev/null || true
+xset s reset 2>/dev/null || true
+scrot -o /tmp/rpa-selfheal-fb.png 2>/dev/null || gnome-screenshot -f /tmp/rpa-selfheal-fb.png 2>/dev/null || true
+python3 - <<'PY'
+import os
+mean = -1.0
+std = -1.0
+try:
+    from PIL import Image, ImageStat
+    p = "/tmp/rpa-selfheal-fb.png"
+    if os.path.isfile(p) and os.path.getsize(p) > 100:
+        im = Image.open(p).convert("RGB")
+        st = ImageStat.Stat(im.convert("L"))
+        mean = float(st.mean[0]) if st.mean else -1.0
+        std = float(st.stddev[0]) if st.stddev else -1.0
+except Exception as e:
+    print("pil_err", e)
+print(f"fb_mean={mean:.1f}")
+print(f"fb_std={std:.1f}")
+if mean >= 0 and mean < 8.0 and std < 6.0:
+    print("HEALTH=black_framebuffer")
+elif mean < 0:
+    print("HEALTH=no_screenshot")
+else:
+    print("HEALTH=fb_ok")
+PY
+""",
+        timeout=60,
+    )
+    text = (out or "") + "\n" + (err or "")
+    print(text, flush=True)
+    has_desktop = "SHELL_OK" in text or "XORG_OK" in text
+    if not has_desktop or "BUS_MISSING" in text:
+        return False, "no Active graphical session / bus"
+    if "HEALTH=black_framebuffer" in text:
+        return False, "black framebuffer (WebKit/X dead or DPMS blank)"
+    if "HEALTH=fb_ok" in text:
+        return True, "desktop + framebuffer OK"
+    if "HEALTH=no_screenshot" in text and has_desktop:
+        # Desktop processes up but scrot failed — allow continue
+        return True, "desktop up (screenshot inconclusive)"
+    return False, "desktop health unknown"
+
+
+def clear_hung_linux_runs(client) -> None:
+    """Abort incomplete done.json and kill orphan Void / stuck RPA processes."""
+    code, out, err = run(
+        client,
+        r"""
+set +e
+echo '=== SELF_HEAL_CLEANUP ==='
+# Kill Void GUI / AppImage — never match ~/void-browser/ harness path
+pkill -x void-browser 2>/dev/null && echo KILL=void-browser || true
+pkill -f 'Void\.Browser_.*\.AppImage' 2>/dev/null && echo KILL=AppImage || true
+pkill -f '/void-browser\.AppImage' 2>/dev/null || true
+# Stuck prior harness (xdotool/scrot loops); do not kill this SSH session's parent
+pkill -f 'tests/rpa/runner_linux.py' 2>/dev/null && echo KILL=runner_linux || true
+pkill -f 'run-rpa-linux.sh' 2>/dev/null && echo KILL=run-rpa-linux || true
+pkill -x update-manager 2>/dev/null || true
+# Abort incomplete status dirs
+status_root=/home/rpa-linux/void-rpa-status
+if [ -d "$status_root" ]; then
+  ls -1dt "$status_root"/*/ 2>/dev/null | head -n 5 | while read -r d; do
+    d="${d%/}"
+    if [ ! -f "$d/done.json" ]; then
+      python3 -c "import json; print(json.dumps({'exit_code':99,'finished_at':__import__('datetime').datetime.now().isoformat(),'aborted':True,'reason':'suite-self-heal','artifact_dir':None}))" > "$d/done.json"
+      echo "ABORT_DONE=$d/done.json"
+    fi
+  done
+fi
+# Best-effort dismiss apport / updater stealers
+export DISPLAY=:0
+export XDG_RUNTIME_DIR=/run/user/$(id -u)
+for t in 'Problem in WebKit' 'Sorry, Ubuntu' 'Software Updater' 'Ubuntu'; do
+  for wid in $(xdotool search --name "$t" 2>/dev/null); do
+    xdotool windowactivate --sync "$wid" key --clearmodifiers Escape 2>/dev/null || true
+    echo "DISMISS=$t wid=$wid"
+  done
+done
+echo SELF_HEAL_CLEANUP_OK
+""",
+        timeout=60,
+    )
+    print(out, flush=True)
+    if err.strip():
+        print(err, file=sys.stderr)
+
+
+def _reboot_linux_guest() -> None:
+    password = os.environ.get("VOID_RPA_LINUX_PASS", "").strip()
+    sudo_q = password.replace("'", "'\"'\"'")
+    print("[rpa-linux] issuing reboot ...", flush=True)
+    client = connect()
+    try:
+        try:
+            run(
+                client,
+                f"echo '{sudo_q}' | sudo -S /sbin/reboot",
+                timeout=20,
+            )
+        except Exception as e:  # noqa: BLE001
+            print(f"[rpa-linux] reboot connection dropped (expected): {e}", flush=True)
+    finally:
+        try:
+            client.close()
+        except Exception:  # noqa: BLE001
+            pass
+    time.sleep(20)
+
+
+def wait_for_healthy_linux(timeout_sec: int = 360) -> None:
+    deadline = time.time() + timeout_sec
+    print(f"[rpa-linux] waiting for SSH + desktop (max {timeout_sec}s)...", flush=True)
+    while time.time() < deadline:
+        try:
+            client = connect()
+            try:
+                clear_hung_linux_runs(client)
+                ok, detail = probe_desktop_health(client)
+                if ok:
+                    print(f"[rpa-linux] post-reboot healthy: {detail}", flush=True)
+                    return
+                print(f"[rpa-linux] up but not healthy yet: {detail}", flush=True)
+            finally:
+                client.close()
+        except Exception as e:  # noqa: BLE001
+            print(f"[rpa-linux] wait: {e}", flush=True)
+        time.sleep(8)
+    raise TimeoutError(
+        f"Linux guest did not become healthy within {timeout_sec}s after reboot"
+    )
+
+
+def self_heal(client, *, allow_reboot: bool = True):
+    """
+    Suite startup self-heal on void-test-linux:
+      1) kill orphan void-browser / stuck RPA
+      2) dismiss apport / updater dialogs
+      3) require Active GNOME/Xorg + DISPLAY
+      4) if framebuffer black / no desktop → reboot once, then continue
+      5) clear hung previous runs (done.json)
+    Returns a (possibly new) connected client after reboot.
+    """
+    print("[rpa-linux] suite self-heal starting...", flush=True)
+    clear_hung_linux_runs(client)
+    ok, detail = probe_desktop_health(client)
+    if ok:
+        print(f"[rpa-linux] self-heal OK: {detail}", flush=True)
+        return client
+
+    print(f"[rpa-linux] desktop unhealthy: {detail}", flush=True)
+    if not allow_reboot:
+        raise RuntimeError(
+            f"Linux RPA guest unhealthy and reboot disabled: {detail}. "
+            "Check GDM autologin or VNC http://10.0.0.10:5701/"
+        )
+
+    try:
+        client.close()
+    except Exception:  # noqa: BLE001
+        pass
+    print("[rpa-linux] rebooting guest once to recover desktop/framebuffer...", flush=True)
+    _reboot_linux_guest()
+    wait_for_healthy_linux()
+    client2 = connect()
+    clear_hung_linux_runs(client2)
+    ok2, detail2 = probe_desktop_health(client2)
+    if not ok2:
+        client2.close()
+        raise RuntimeError(
+            f"Linux RPA guest still unhealthy after reboot: {detail2}. "
+            "Check GDM autologin / VNC http://10.0.0.10:5701/"
+        )
+    print(f"[rpa-linux] self-heal recovered after reboot: {detail2}", flush=True)
+    return client2
+
+
 def sync_repo(client, remote_root: str) -> None:
     """Fetch latest main onto the VM checkout.
 
@@ -218,6 +413,10 @@ export VOID_RPA_LINUX_SUDO_PASS='{sudo_q}'
 export VOID_SOFTWARE_RENDERING=1
 export WEBKIT_DISABLE_COMPOSITING_MODE=1
 export LIBGL_ALWAYS_SOFTWARE=1
+export GALLIUM_DRIVER=llvmpipe
+export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
+export GSK_RENDERER=cairo
+unset WEBKIT_FORCE_COMPOSITING_MODE
 export VOID_RPA_CLEANUP=1
 mkdir -p {status} {remote_root}/artifacts/rpa {remote_root}/downloads/rpa
 chmod +x {remote_root}/scripts/run-rpa-linux.sh
@@ -349,7 +548,18 @@ def main() -> int:
     parser.add_argument("--out", default=str(ROOT / "artifacts" / "rpa"))
     parser.add_argument("--configure-desktop", action="store_true",
                         help="Re-apply GDM autologin + no-lock before smoke")
+    parser.add_argument(
+        "--no-self-heal",
+        action="store_true",
+        help="Skip suite-startup self-heal (orphans / desktop / one reboot)",
+    )
     args = parser.parse_args()
+
+    skip_heal = args.no_self_heal or os.environ.get("VOID_RPA_SKIP_SELF_HEAL", "").strip() in (
+        "1",
+        "true",
+        "yes",
+    )
 
     client = connect()
     try:
@@ -372,8 +582,6 @@ def main() -> int:
             print("[rpa-linux] sync-repo-only done")
             return 0
 
-        ensure_desktop_session(client)
-
         if args.sync_repo:
             try:
                 sync_repo(client, args.remote_root)
@@ -382,6 +590,11 @@ def main() -> int:
 
         if args.push_harness and not args.no_push_harness:
             push_harness(client, args.remote_root, ROOT)
+
+        if skip_heal:
+            ensure_desktop_session(client)
+        else:
+            client = self_heal(client, allow_reboot=True)
 
         done = run_smoke(
             client,

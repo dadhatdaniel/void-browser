@@ -125,6 +125,15 @@ def http_download(url: str, dest: Path, min_bytes: int = 0) -> int:
 
 
 def analyze_content_region(image_path: Path) -> dict[str, Any]:
+    """
+    Heuristic blank / paint-glitch detector for Linux scrot frames.
+
+    Crops away approximate chrome (top ~18%) and samples the webview. Also
+    detects the QEMU/QXL WebKit failure mode: a contiguous near-black
+    horizontal band inside the frame (often the upper webview tiles) while
+    other rows still have content — that previously false-PASSed because
+    overall mean/std looked healthy on full-desktop scrots.
+    """
     from PIL import Image, ImageStat
 
     img = Image.open(image_path).convert("RGB")
@@ -134,9 +143,11 @@ def analyze_content_region(image_path: Path) -> dict[str, Any]:
             "blank": True,
             "reason": f"window too small {w}x{h}",
             "bright_ratio": 1.0,
+            "black_ratio": 1.0,
             "stddev": 0.0,
             "mean": 0.0,
             "size": [w, h],
+            "paint_glitch": False,
         }
     left, top = int(w * 0.04), int(h * 0.18)
     right, bottom = int(w * 0.96), int(h * 0.96)
@@ -150,10 +161,53 @@ def analyze_content_region(image_path: Path) -> dict[str, Any]:
     near_black = sum(1 for r, g, b in pixels if (r + g + b) / 3.0 <= 12)
     bright_ratio = bright / n
     black_ratio = near_black / n
-    stat = ImageStat.Stat(small.convert("L"))
+    gray = small.convert("L")
+    stat = ImageStat.Stat(gray)
     stddev = float(stat.stddev[0]) if stat.stddev else 0.0
     mean = float(stat.mean[0]) if stat.mean else 0.0
+
+    # Row-band scan on a wider sample (full-desktop scrots include wallpaper).
+    band_img = crop.resize((160, 90)).convert("L")
+    bw, bh = band_img.size
+    bpx = band_img.load()
+    row_black: list[float] = []
+    row_mean: list[float] = []
+    for y in range(bh):
+        vals = [bpx[x, y] for x in range(bw)]
+        row_mean.append(sum(vals) / max(1, len(vals)))
+        row_black.append(sum(1 for v in vals if v <= 12) / max(1, len(vals)))
+
+    longest = 0
+    longest_start = 0
+    cur = 0
+    cur_start = 0
+    for y, frac in enumerate(row_black):
+        if frac >= 0.55 and row_mean[y] <= 22.0:
+            if cur == 0:
+                cur_start = y
+            cur += 1
+            if cur > longest:
+                longest = cur
+                longest_start = cur_start
+        else:
+            cur = 0
+
+    band_frac = longest / max(1, bh)
+    outside = [row_mean[y] for y in range(bh) if not (longest_start <= y < longest_start + longest)]
+    outside_mean = (sum(outside) / len(outside)) if outside else 0.0
+    band_mean = (
+        sum(row_mean[longest_start : longest_start + longest]) / longest if longest else 0.0
+    )
+    max_row = max(row_mean) if row_mean else 0.0
+
+    third = max(1, h_s // 3)
+    top_vals = [pixels[y * w_s + x] for y in range(third) for x in range(w_s)]
+    bot_vals = [pixels[y * w_s + x] for y in range(h_s - third, h_s) for x in range(w_s)]
+    top_mean = sum((r + g + b) / 3.0 for r, g, b in top_vals) / max(1, len(top_vals))
+    bot_mean = sum((r + g + b) / 3.0 for r, g, b in bot_vals) / max(1, len(bot_vals))
+
     blank = False
+    paint_glitch = False
     reason = "ok"
     if bright_ratio >= 0.92 and stddev < 18.0:
         blank, reason = True, f"near-white content (bright={bright_ratio:.2f} std={stddev:.1f})"
@@ -163,6 +217,41 @@ def analyze_content_region(image_path: Path) -> dict[str, Any]:
         blank, reason = True, f"uniform black void (mean={mean:.1f} std={stddev:.1f})"
     elif black_ratio >= 0.98 and stddev < 4.0:
         blank, reason = True, f"near-black empty (black={black_ratio:.2f} std={stddev:.1f})"
+    elif mean < 10.0 and stddev < 10.0:
+        # Mostly-black / dead WebKit — never silent-PASS on content_mean ~0.
+        blank, reason = True, f"content_mean too low (mean={mean:.1f} black={black_ratio:.2f})"
+    elif mean < 18.0 and black_ratio >= 0.90 and stddev < 12.0:
+        blank, reason = True, (
+            f"content_mean too low (mean={mean:.1f} black={black_ratio:.2f} std={stddev:.1f})"
+        )
+    elif (
+        band_frac >= 0.16
+        and longest >= 10
+        and band_mean <= 18.0
+        and longest_start < int(bh * 0.55)
+        and max_row >= 40.0
+        and (max_row - band_mean) >= 25.0
+        and (outside_mean >= 35.0 or (bot_mean - top_mean) >= 18.0)
+    ):
+        blank = True
+        paint_glitch = True
+        reason = (
+            f"top-half black paint glitch "
+            f"(band_frac={band_frac:.2f} band_mean={band_mean:.1f} "
+            f"outside_mean={outside_mean:.1f} max_row={max_row:.1f})"
+        )
+    elif (
+        top_mean < 22.0
+        and bot_mean > 50.0
+        and (bot_mean - top_mean) >= 35.0
+        and black_ratio >= 0.20
+    ):
+        blank = True
+        paint_glitch = True
+        reason = (
+            f"top-half black paint glitch "
+            f"(top_mean={top_mean:.1f} bot_mean={bot_mean:.1f})"
+        )
     return {
         "blank": blank,
         "reason": reason,
@@ -170,6 +259,10 @@ def analyze_content_region(image_path: Path) -> dict[str, Any]:
         "black_ratio": round(black_ratio, 3),
         "stddev": round(stddev, 2),
         "mean": round(mean, 2),
+        "top_mean": round(top_mean, 2),
+        "bot_mean": round(bot_mean, 2),
+        "band_frac": round(band_frac, 3),
+        "paint_glitch": paint_glitch,
         "size": [w, h],
     }
 
@@ -332,17 +425,24 @@ class LinuxRpaSession:
             "DBUS_SESSION_BUS_ADDRESS",
             f"unix:path={env['XDG_RUNTIME_DIR']}/bus",
         )
-        # Unraid/QEMU guests often lack DRI3 — force software WebKit path by default.
-        # Override with VOID_SOFTWARE_RENDERING=0 to prefer HW compositing.
+        # Unraid/QEMU guests (QXL) black out under WebKit HW compositing —
+        # force software path by default. Override with VOID_SOFTWARE_RENDERING=0.
         soft = os.environ.get("VOID_SOFTWARE_RENDERING", "1").strip()
         if soft not in ("0", "false", "no"):
             env["VOID_SOFTWARE_RENDERING"] = "1"
-            env.setdefault("WEBKIT_DISABLE_COMPOSITING_MODE", "1")
+            env["WEBKIT_DISABLE_COMPOSITING_MODE"] = "1"
             env.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
+            env.setdefault("GALLIUM_DRIVER", "llvmpipe")
+            env.setdefault("MESA_LOADER_DRIVER_OVERRIDE", "llvmpipe")
+            env.setdefault("GSK_RENDERER", "cairo")
+            env.pop("WEBKIT_FORCE_COMPOSITING_MODE", None)
         if enable_updater:
             env.pop(VOID_DISABLE_UPDATER_ENV, None)
         else:
             env[VOID_DISABLE_UPDATER_ENV] = "1"
+        # Skip clear_on_exit under RPA so sessions survive kill/relaunch.
+        if os.environ.get("VOID_DISABLE_CLEAR_ON_EXIT", "1").strip() != "0":
+            env["VOID_DISABLE_CLEAR_ON_EXIT"] = "1"
         return env
 
     def stop(self) -> None:
@@ -625,7 +725,8 @@ def assert_content_not_blank(s: LinuxRpaSession, shot_name: str, label: str) -> 
     ok = not info["blank"] and s.alive()
     detail = (
         f"{info['reason']}; bright={info['bright_ratio']} std={info['stddev']} "
-        f"mean={info['mean']} size={info['size']}"
+        f"mean={info['mean']} top={info.get('top_mean')} bot={info.get('bot_mean')} "
+        f"glitch={info.get('paint_glitch')} size={info['size']}"
     )
     return Step(label, ok, detail, shot_name)
 
@@ -1496,6 +1597,14 @@ def main() -> int:
     if unknown:
         print(f"Unknown scenarios: {unknown}. Known: {list(SCENARIOS)}", file=sys.stderr)
         return 2
+
+    # Suite startup: orphans + focus-stealers (CI wrappers also self-heal guests).
+    print("[rpa-linux] suite startup cleanup...", flush=True)
+    kill_void_processes()
+    try:
+        dismiss_interfering_dialogs()
+    except Exception as e:  # noqa: BLE001
+        print(f"[rpa-linux] dialog dismiss soft-fail: {e}", flush=True)
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     out_dir = Path(args.out) / stamp

@@ -79,10 +79,34 @@ pub fn configure_hardware_acceleration() {
 
     #[cfg(target_os = "linux")]
     {
-        let software = std::env::var_os("VOID_SOFTWARE_RENDERING").is_some();
+        // Treat unset as HW-preferring; only force software when explicitly enabled
+        // (VOID_SOFTWARE_RENDERING=1 / true / yes). RPA QEMU guests set this.
+        let software = match std::env::var("VOID_SOFTWARE_RENDERING") {
+            Ok(v) => {
+                let t = v.trim().to_ascii_lowercase();
+                !(t.is_empty() || t == "0" || t == "false" || t == "no")
+            }
+            Err(_) => false,
+        };
         if software {
+            // QXL/no-DRI3 guests black out under WebKit AC — force the software path.
+            unsafe {
+                std::env::remove_var("WEBKIT_FORCE_COMPOSITING_MODE");
+                std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+                if std::env::var_os("LIBGL_ALWAYS_SOFTWARE").is_none() {
+                    std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
+                }
+                if std::env::var_os("GALLIUM_DRIVER").is_none() {
+                    std::env::set_var("GALLIUM_DRIVER", "llvmpipe");
+                }
+                if std::env::var_os("GSK_RENDERER").is_none() {
+                    // GTK4: avoid GL/Vulkan shell renderer fighting QXL.
+                    std::env::set_var("GSK_RENDERER", "cairo");
+                }
+            }
             eprintln!(
-                "[void] WebKitGTK: VOID_SOFTWARE_RENDERING set — leaving compositing defaults"
+                "[void] WebKitGTK: VOID_SOFTWARE_RENDERING — \
+                 WEBKIT_DISABLE_COMPOSITING_MODE=1, software GL/Cairo"
             );
         } else {
             unsafe {
