@@ -1,99 +1,129 @@
 # Test environments: Unraid VMs vs local PC vs CI
 
-Inventory date: 2026-07-18 (host `lightfootserver` / `10.0.0.10`).
+Inventory date: **2026-07-20** (host `lightfootserver` / `10.0.0.10`).
+
+## Honest status
+
+| Date | What happened |
+|------|----------------|
+| **2026-07-18** | Docs only — no Void VMs created. |
+| **2026-07-20 (earlier)** | Created empty-disk installer VMs (`void-test-linux` + a Win11 ISO `void-rpa-windows`). |
+| **2026-07-20 (this update)** | **Cloned** configured Windows guest `fresh-configured` → **`void-rpa-windows`**. GPU passthrough stripped; VNC added. Installer Windows VM renamed to `void-rpa-windows-scratch` (shut off). `void-test-linux` kept. |
+
+**Why clone `fresh-configured` instead of Win11 OOBE?**  
+User already has a configured Windows disk. Cloning avoids a full reinstall/license OOBE. Original stays shut off with GPU passthrough intact for personal use.
 
 ## What can test what
 
-| Environment | cargo test | Tauri Linux build | WebView2 GUI / RPA screenshots | Notes |
-|-------------|------------|-------------------|----------------------------------|-------|
-| **This Windows PC** (danielrig) | Yes (MSVC) | No | **Yes — primary** | Interactive desktop required for WebView2 IPC |
-| **GitHub Actions `windows-latest`** | Yes | No | Partial (smoke + optional RPA) | Good for CI; RPA may need `continue-on-error` |
-| **GitHub Actions `ubuntu-latest`** | Yes | Yes (.deb / AppImage) | No WebView2 | WebKitGTK only |
-| **Unraid Docker** | Yes (Linux containers) | Yes | **No** | Cannot show Windows GUI |
-| **Unraid KVM VMs** | If guest has toolchain | If Linux guest | **Only if Windows guest + desktop + RDP/console** | See inventory below |
+| Environment | cargo test | Tauri Linux build | WebView2 GUI / RPA | Notes |
+|-------------|------------|-------------------|--------------------|-------|
+| **This Windows PC** (danielrig) | Yes (MSVC) | No | **Yes — primary** | Interactive desktop |
+| **GitHub Actions `windows-latest`** | Yes | No | Partial | CI smoke |
+| **GitHub Actions `ubuntu-latest`** | Yes | Yes | No WebView2 | WebKitGTK |
+| **Unraid Docker** | Yes | Yes | **No** | No Windows GUI |
+| **`void-test-linux`** | After Ubuntu install | After deps | No | VNC; ISO install |
+| **`void-rpa-windows`** | Optional (MSVC) | No | **Yes — cloned guest** | VNC; already-configured Windows disk |
 
-## Host resources (Unraid)
+## Host resources
 
 | Resource | Observed |
 |----------|----------|
 | CPU | 12 threads |
-| RAM | 62 GiB total, ~34 GiB available when idle-ish |
-| Array | 7.3T @ ~46% used (~4T free) |
-| Cache | 7.3T SSD path available |
+| RAM | 62 GiB; `ha` 4 + `void-test-linux` 8 + `void-rpa-windows` 16 ≈ 28 GiB guests |
+| Disk clone | `fresh-configured` ~57 GiB used of 500 GiB sparse → same for clone |
 
-Headroom exists for **one** additional mid-size VM (4–8 GiB RAM) without starting the large Windows guests.
+Do **not** start `fresh-configured` / `juliavm` / `Windows 11` while `void-rpa-windows` runs (they share the same physical GPU if those GPU VMs are started — clone itself has **no** GPU).
 
-## Existing VMs (`virsh list --all`)
+## VMs (`virsh list --all`)
 
-| Name | State | vCPU | RAM | Disk | Role for Void |
-|------|-------|------|-----|------|----------------|
-| `ha` | running | 4 | 4 GiB | Home Assistant OS qcow2 | **Not for browser QA** (HAOS) |
-| `fresh-configured` | shut off | 12 | 24 GiB | `/mnt/user/VMs/fresh-configured/vdisk1.img` (500G) + virtio-win ISO | Likely **Windows** guest — candidate for WebView2/RPA if licensed & boots |
-| `juliavm` | shut off | 12 | 32 GiB | `/mnt/user/VMs/juliavm/vdisk1.img` (500G) + virtio-win ISO | Likely **Windows** — personal/other; do not assume Void CI |
-| `Windows 11` | shut off | 12 | 24 GiB | Points at `/mnt/user/appdata/junk/danielrig.img` + virtio-win ISO | Existing Win11 domain; heavy RAM; verify before use |
+| Name | State | vCPU | RAM | Role |
+|------|-------|------|-----|------|
+| **`void-rpa-windows`** | **running** | 8 | 16 GiB | **Clone of `fresh-configured`** — Void RPA / WebView2 (VNC, no GPU) |
+| **`void-test-linux`** | **running** | 4 | 8 GiB | Ubuntu ISO → cargo/WebKit tests |
+| `ha` | running | 4 | 4 GiB | Home Assistant — **do not touch** |
+| `fresh-configured` | shut off | 12 | 24 GiB | **Original** GPU-passthrough Windows — **untouched** |
+| `void-rpa-windows-scratch` | shut off | 4 | 8 GiB | Former empty Win11 installer VM (safe to delete later) |
+| `juliavm` | shut off | 12 | 32 GiB | Personal GPU VM |
+| `Windows 11` | shut off | 12 | 24 GiB | GPU passthrough; not Void RPA |
 
-**No dedicated Linux build/test VM** was present. Ubuntu desktop ISO is on disk:
+### Disks
 
-`/mnt/user/isos/test/ubuntu-23.10.1-desktop-amd64.iso`
+| VM | Disk |
+|----|------|
+| `fresh-configured` | `/mnt/user/VMs/fresh-configured/vdisk1.img` (original — do not delete) |
+| `void-rpa-windows` | `/mnt/user/VMs/void-rpa-windows/vdisk1.img` (sparse clone, ~57 GiB used / 500 GiB virt) |
+| `void-rpa-windows-scratch` | `/mnt/user/VMs/void-rpa-windows-scratch/vdisk1.img` (empty 80G installer disk) |
+| `void-test-linux` | `/mnt/user/VMs/void-test-linux/vdisk1.img` (40G + Ubuntu ISO) |
 
-Windows ISOs (license required to activate):
+### Console / VNC
 
-- `/mnt/user/isos/test/Win11_24H2_English_x64.iso`
-- `/mnt/user/isos/test/Windows10.iso`
-- VirtIO drivers: `/mnt/user/isos/virtio-win-0.1.285-1.iso`
+| VM | VNC TCP | noVNC (browser) | Unraid UI |
+|----|---------|-----------------|-----------|
+| `ha` | `10.0.0.10:5900` | `http://10.0.0.10:5700/` | VMs → ha → VNC |
+| `void-test-linux` | `10.0.0.10:5901` | `http://10.0.0.10:5701/` | VMs → void-test-linux → **VNC** |
+| **`void-rpa-windows`** | **`10.0.0.10:5902`** | **`http://10.0.0.10:5702/`** | VMs → **void-rpa-windows** → **VNC** |
 
-## Recommendation (practical path)
-
-1. **Default RPA + WebView2 QA** → this Windows PC (`.\scripts\run-rpa-windows.ps1`).
-2. **Linux unit/build** → GitHub `ubuntu-latest` or Unraid Docker (`scripts/docker-linux-unit-test.sh`).
-3. **Unraid Windows VM** → only after manually confirming `fresh-configured` or `Windows 11` boots, has a license, and exposes RDP/WinRM. Do **not** auto-start 24–32 GiB guests from agents without approval (RAM contention with Docker stack).
-4. **Optional Linux VM** → create a small Ubuntu 24.04 cloud/desktop VM (4 vCPU / 8 GiB / 40G) named e.g. `void-linux-test` for `cargo test` + WebKitGTK under Xvfb. Do this when you want host-local Linux builds without GitHub.
-
-## Windows license constraints
-
-- ISOs on the server do **not** grant a license.
-- Do not pirate or use unattended activation cracks.
-- Use an existing licensed guest (`Windows 11` / `fresh-configured` if already activated), a retail/OEM key you own, or Microsoft evaluation/dev entitlements.
-- Agents must **not** auto-create Windows VMs unless an ISO **and** explicit license confirmation are both present.
-
-## Create a Linux test VM (Unraid-friendly sketch)
-
-When ready (manual / approved):
-
-1. Unraid UI → VMs → Add VM → Ubuntu, **4 vCPU, 8192 MB RAM**, 40G disk on cache/array.
-2. Attach `/mnt/user/isos/test/ubuntu-23.10.1-desktop-amd64.iso` (or a newer 24.04 ISO you download).
-3. Install OpenSSH; install Rust + WebKitGTK deps (same as GHA Linux job).
-4. Clone via GitLab HTTP: `http://10.0.0.10:8929/lightfootcloud/void-browser.git`
-5. Run: `cargo test --manifest-path src-tauri/Cargo.toml`
-6. Optional GUI: `xvfb-run -a cargo tauri build` (headless) or console VNC for manual WebKit checks.
-
-Virt-install example (host shell, adjust bridges/paths):
+Ports are libvirt autoport; re-check after restart:
 
 ```bash
-# Only after you confirm disk/bridge names — do not run blindly
-virt-install \
-  --name void-linux-test \
-  --memory 8192 --vcpus 4 \
-  --disk path=/mnt/cache/VMs/void-linux-test/vdisk1.img,size=40,format=raw \
-  --cdrom /mnt/user/isos/test/ubuntu-23.10.1-desktop-amd64.iso \
-  --network bridge=br0 \
-  --os-variant ubuntu22.04 \
-  --graphics vnc
+ssh -i C:\Users\rud12\.ssh\id_ed25519_openclaw -o IdentitiesOnly=yes root@10.0.0.10
+virsh list --all
+virsh vncdisplay void-rpa-windows   # e.g. :2 → 5902 / 5702
 ```
 
-## Wire RPA to a Windows VM (later)
+**Access path for RPA setup**
 
-Once a Windows guest has IP + RDP:
+1. Open Unraid: `http://10.0.0.10` → **VMs**.
+2. Click **`void-rpa-windows`** → **VNC** (or open `http://10.0.0.10:5702/` directly).
+3. Log into the existing Windows session (same guest as `fresh-configured`, new MAC / no GPU — display is QXL/VNC).
+4. If Windows complains about hardware change / reactivation, use your license/account (clone may trigger reactivation).
+5. Install/run Void Browser + `.\scripts\run-rpa-windows.ps1` on the guest.
 
-```powershell
-# From the Windows guest (or WinRM session), after syncing the repo:
-.\scripts\run-rpa-windows.ps1 -SmokeOnly
-# Copy artifacts\rpa\<stamp>\ back to the agent host / GitLab artifacts
+No physical GPU monitor is required for the clone — VNC only. Leave `fresh-configured` off unless you intentionally want the GTX 1080 Ti passthrough desktop.
+
+### Clone notes (what we changed on the clone only)
+
+- **Kept:** Windows disk contents (configured guest).
+- **Removed:** PCI `hostdev` GPU (GTX 1080 Ti + audio) so the host keeps the GPU.
+- **Added:** VNC (`0.0.0.0`) + QXL video + USB tablet.
+- **Adjusted:** 16 GiB RAM / 8 vCPU (original is 24 GiB / 12); new UUID, MAC, NVRAM copy.
+- **Original `fresh-configured`:** unchanged XML, unchanged disk, still shut off with GPU passthrough.
+
+Recreate helper: [`scripts/unraid-clone-fresh-to-void-rpa.sh`](../scripts/unraid-clone-fresh-to-void-rpa.sh)
+
+### Start / stop
+
+```bash
+virsh start void-rpa-windows
+virsh start void-test-linux
+virsh shutdown void-rpa-windows
+virsh shutdown void-test-linux
 ```
 
-Document the guest IP in a private note (not secrets in git). Optional future GitLab runner tags: `vm-linux`, `vm-windows` — **not** required for the first working path.
+Optional cleanup later (installer leftovers only — **never** delete `fresh-configured` disk):
 
-## SSH to Unraid host
+```bash
+virsh undefine void-rpa-windows-scratch --nvram
+# then rm -rf /mnt/user/VMs/void-rpa-windows-scratch   # only if you confirm it is the empty installer disk
+```
+
+## `void-test-linux` next steps
+
+1. VNC: `http://10.0.0.10:5701/`
+2. Finish Ubuntu install from attached ISO.
+3. OpenSSH + Rust + WebKitGTK deps → `cargo test --manifest-path src-tauri/Cargo.toml`
+
+## Windows license
+
+Cloning a licensed disk can still require reactivation after hardware change (no GPU, new virt UUID/MAC). Use your own key/account. Do not pirate.
+
+## Recommendation
+
+1. **RPA now** → this PC, or `void-rpa-windows` via VNC once you can log in.
+2. **Linux unit/build** → GHA `ubuntu-latest`, Docker, or finish `void-test-linux`.
+3. **Do not** start `fresh-configured` for agent RPA (no VNC; steals GPU).
+
+## SSH
 
 ```powershell
 ssh -i C:\Users\rud12\.ssh\id_ed25519_openclaw -o IdentitiesOnly=yes root@10.0.0.10
@@ -104,4 +134,4 @@ virsh list --all
 
 - [RPA_TESTING.md](./RPA_TESTING.md)
 - [LOCAL_WINDOWS_DEV.md](./LOCAL_WINDOWS_DEV.md)
-- [GOOGLE_SIGNIN.md](./GOOGLE_SIGNIN.md)
+- Clone script: [`scripts/unraid-clone-fresh-to-void-rpa.sh`](../scripts/unraid-clone-fresh-to-void-rpa.sh)
