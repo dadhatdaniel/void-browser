@@ -6,6 +6,27 @@ Produces screenshots + JSON for humans and Cursor agent quality loops.
 Linux/Unraid Docker **cannot** run this harness (no WebView2 GUI). See
 [TEST_VMS.md](./TEST_VMS.md) for host/VM options.
 
+## Is RPA automated on release?
+
+| Path | Today |
+|------|--------|
+| GitLab `rpa-windows` (WinRM → `10.0.0.28`) after GitHub Release | **Yes** — `sync-website-releases-to-gitlab.sh` POSTs `RPA_AFTER_RELEASE=1` |
+| GitHub Actions `RPA Windows` on `release: published` | **Yes** (hosted `windows-latest` smoke + `auto_update`; `continue-on-error`) |
+| GitHub Actions nightly / `workflow_dispatch` | Yes |
+| Unraid cron / local `rpa-after-release.ps1` | Optional backup |
+
+**Full chain:** [RELEASE_PIPELINE.md](./RELEASE_PIPELINE.md)
+
+**Trigger chain for a new tagged release:**
+
+1. Tag + push on GitLab (`v*`) → `trigger-github-build` kicks **Build & Release**.
+2. Build & Release publishes installers + signed `latest.json`.
+3. Release job syncs `website/releases.json` to GitLab → **deploy-site**.
+4. Same sync POSTs GitLab pipeline `RPA_AFTER_RELEASE=1` → **rpa-windows** WinRM to rpa-win (full suite incl. `auto_update`).
+5. Secondary: GitHub `release: published` starts hosted **RPA Windows**.
+
+Requires GitLab CI variable **`VOID_RPA_WIN_PASS`** (masked) and an Active console session on the VM.
+
 ## Quick start (this Windows PC)
 
 ```powershell
@@ -14,11 +35,11 @@ cd Z:\openclaw-localai\workspace\void-browser
 # Optional: build first
 .\scripts\run-rpa-windows.ps1 -Build -SmokeOnly
 
-# Full suite (download + install + functionality)
+# Full suite (download + install + functionality + auto_update)
 .\scripts\run-rpa-windows.ps1 -DownloadInstall
 
 # Subset
-.\scripts\run-rpa-windows.ps1 -Scenarios smoke_navigate,settings_preserves_tab
+.\scripts\run-rpa-windows.ps1 -Scenarios smoke_navigate,settings_preserves_tab,auto_update
 ```
 
 Requires:
@@ -28,6 +49,7 @@ Requires:
 - Python 3.10+ (`py -3` or `python`)
 - WebView2 Runtime
 - Network access to `http://10.0.0.10:5080/releases.json` and GitHub release assets
+- For `auto_update`: HTTPS to GitHub `latest.json` + an older portable (default `v0.1.0-alpha.15`)
 
 ## Remote RPA (Unraid VM `void-rpa-windows`)
 
@@ -57,6 +79,10 @@ cd Z:\openclaw-localai\workspace\void-browser
 # Full suite: download latest build, install/stage, run all functionality tests
 .\scripts\rpa-remote-run.ps1 -DownloadInstall
 
+# After a GitHub Release (Path B — recommended companion to GHA)
+.\scripts\rpa-after-release.ps1
+.\scripts\rpa-after-release.ps1 -SyncRepo
+
 # Smoke only
 .\scripts\rpa-remote-run.ps1 -SmokeOnly
 
@@ -64,7 +90,7 @@ cd Z:\openclaw-localai\workspace\void-browser
 .\scripts\rpa-remote-run.ps1 -SyncRepo -DownloadInstall
 
 # Subset
-.\scripts\rpa-remote-run.ps1 -Scenarios smoke_navigate,settings_preserves_tab
+.\scripts\rpa-remote-run.ps1 -Scenarios smoke_navigate,settings_preserves_tab,auto_update
 ```
 
 What it does:
@@ -82,6 +108,7 @@ What it does:
 | `C:\void-browser` | Git clone (GitLab `lightfootcloud/void-browser` or GitHub) |
 | `C:\void-browser\dist\void-browser.exe` | Binary under test (staged from download or release) |
 | `C:\void-browser\downloads\rpa\` | Fresh portable + NSIS setup downloads |
+| `C:\void-browser\downloads\rpa\old\` | Older portable used by `auto_update` |
 | `%USERPROFILE%\void-rpa-venv` | Python venv (pywinauto, Pillow, psutil) |
 | `C:\void-browser\artifacts\rpa\<stamp>\` | On-VM artifacts before pull |
 | `C:\Users\rpa-win\void-rpa-status\<stamp>\` | Remote run logs / `done.json` |
@@ -99,8 +126,26 @@ What it does:
 | `new_tab` | Ctrl+T second tab; Ctrl+Shift+Tab switch back; blank fail |
 | `youtube_signin_page` | Load `accounts.google.com/signin` UI (no password unless env set); blank fail |
 | `context_menu` | URL bar clipboard Ctrl+C / Ctrl+V |
+| `auto_update` | Fetch GitHub `latest.json` (**fail on 404 / wrong URLs**); stage older portable (default `v0.1.0-alpha.15`); launch → startup quiet check and/or Settings **Check for updates**; assert **Update available** dialog; screenshot; dismiss **Later** (does not install) |
 
-Default suite runs **all** of the above (in that order). After `download_install`, the harness relaunches on the staged build.
+Default suite runs **all** of the above (in that order). After `download_install`, the harness relaunches on the staged build. `auto_update` runs last so it can temporarily switch to an older build, then restores the previous exe.
+
+### `auto_update` details
+
+1. `GET https://github.com/dadhatdaniel/void-browser/releases/latest/download/latest.json`
+2. Require `platforms.windows-x86_64.url` on `github.com/dadhatdaniel/void-browser/releases/download/...` plus a signature.
+3. Download older portable (`VOID_RPA_OLD_TAG`, default `v0.1.0-alpha.15`, or first older release that ships `void-browser.exe`).
+4. Relaunch older build; wait for startup quiet update prompt (~4s) or open Settings and click **Check for updates**.
+5. Screenshot the dialog; click **Later** (suite must not install/restart mid-run).
+6. Fail if `latest.json` is 404, URLs are wrong, older portable cannot download, or no update dialog appears.
+
+Overrides:
+
+| Env | Purpose |
+|-----|---------|
+| `VOID_RPA_LATEST_JSON_URL` | Override latest.json URL |
+| `VOID_RPA_OLD_TAG` | Older release tag (default `v0.1.0-alpha.15`) |
+| `VOID_RPA_OLD_PORTABLE_URL` | Pin exact older `void-browser.exe` URL |
 
 ### Download notes
 
@@ -155,15 +200,41 @@ After an RPA run (or CI artifact download):
 
 Suggested agent prompt:
 
-> Review `artifacts/rpa/<stamp>/report.json` and all PNGs. Summarize failures and open fixes for settings/YouTube/navigation regressions.
+> Review `artifacts/rpa/<stamp>/report.json` and all PNGs. Summarize failures and open fixes for settings/YouTube/navigation/updater regressions.
 
 ## CI
 
-GitHub Actions job `rpa-windows` (workflow_dispatch / nightly) builds Windows,
-runs a smoke subset, uploads `artifacts/rpa/**`. Initially `continue-on-error`
-may be set until the runner GUI is reliable.
+### Path A — GitLab → rpa-win (primary, automatic after release)
 
-GitLab runners on Unraid are Linux — use them for `cargo test`, not RPA.
+Job: `rpa-windows` in `.gitlab-ci.yml` → `scripts/ci/rpa-winrm.py`.
+
+| Event | Behavior |
+|-------|----------|
+| Pipeline var `RPA_AFTER_RELEASE=1` | Auto after GitHub release sync; waits for GitHub assets; full suite + `auto_update` |
+| Manual play on `main` / `v*` | Same job, no new tag needed |
+| `main` push | `sync-rpa-win-repo` refreshes `C:\void-browser` on the VM |
+
+Artifacts: GitLab job `artifacts/rpa/**` (+ optional `/mnt/user/appdata/void-rpa-artifacts` when the runner can write it).
+
+### Path B — GitHub Actions (secondary)
+
+Workflow: `.github/workflows/rpa-windows.yml` (`RPA Windows`).
+
+| Event | Behavior |
+|-------|----------|
+| `release: types: [published]` | Download that tag’s `void-browser.exe`, run smoke + `auto_update` |
+| `schedule` / `workflow_dispatch` | Build unsigned NSIS, smoke + `auto_update` |
+
+`continue-on-error: true` on hosted runners — prefer GitLab→rpa-win for the real desktop gate.
+
+### Path C — local / Unraid cron
+
+```powershell
+$env:VOID_RPA_WIN_PASS = '<password>'   # never commit
+.\scripts\rpa-after-release.ps1 -SyncRepo
+```
+
+GitLab runners are Linux — they use WinRM (`rpa-winrm.py`), not native GUI.
 
 ## Related
 

@@ -22,6 +22,8 @@ No analytics, crash reporting, or other “phone home” — just HTTPS to that 
 
 Source of truth for git remains **GitLab** (`lightfootcloud/void-browser`). Push tags to GitLab; the mirror syncs refs, and GitLab CI `trigger-github-build` dispatches Actions (`workflow_dispatch`) because mirror-only often skips tag `PushEvent`s. Set GitLab CI variable `GITHUB_TOKEN` (classic `repo`+`workflow`).
 
+**Full release → site → RPA automation:** [RELEASE_PIPELINE.md](./RELEASE_PIPELINE.md).
+
 ### Prereleases / “latest”
 
 GitHub’s `/releases/latest` API **ignores prereleases entirely** — even when

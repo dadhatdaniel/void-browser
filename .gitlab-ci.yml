@@ -8,13 +8,15 @@
 # THIS PIPELINE HANDLES:
 #   1. LINT (every push) — code quality gates
 #   2. SECURITY (main + tags) — vulnerability + license audit
-#   3. DEPLOY-SITE (main) — website deployment with health checks
+#   3. DEPLOY-SITE (main, website/**) — website deployment with health checks
+#   4. RPA-WINDOWS (auto after GitHub Release) — WinRM → rpa-win @ 10.0.0.28
+#   5. SYNC-RPA-WIN-REPO (main) — git pull harness on the VM
 #
-# TO CREATE A RELEASE:
-#   git tag v0.1.0-alpha.N && git push origin v0.1.0-alpha.N
-#   → GitLab push-mirror syncs the tag to GitHub (often WITHOUT a tag PushEvent)
-#   → trigger-github-build job POSTs workflow_dispatch (needs GITHUB_TOKEN / GH_WORKFLOW_TOKEN)
-#   → GitHub Actions Build & Release builds all 3 platforms
+# RELEASE FLOW (automatic):
+#   git tag v* && git push origin v*
+#   → trigger-github-build → GitHub Build & Release (signed updater + latest.json)
+#   → sync-website-releases-to-gitlab commits website/releases.json
+#   → deploy-site (website/** change) + RPA_AFTER_RELEASE pipeline → rpa-windows
 # ═══════════════════════════════════════════════════
 
 stages:
@@ -45,6 +47,8 @@ rustfmt:
     key: lint-${CI_COMMIT_REF_SLUG}
     paths: [.cargo/, src-tauri/target/]
   rules:
+    - if: $RPA_AFTER_RELEASE == "1"
+      when: never
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == "main"
 
@@ -60,6 +64,8 @@ clippy:
     key: clippy-${CI_COMMIT_REF_SLUG}
     paths: [.cargo/, src-tauri/target/]
   rules:
+    - if: $RPA_AFTER_RELEASE == "1"
+      when: never
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == "main"
 
@@ -77,6 +83,8 @@ cargo-audit:
     key: audit-${CI_COMMIT_REF_SLUG}
     paths: [.cargo/, src-tauri/target/]
   rules:
+    - if: $RPA_AFTER_RELEASE == "1"
+      when: never
     - if: $CI_COMMIT_BRANCH == "main"
     - if: $CI_COMMIT_TAG
 
@@ -93,6 +101,8 @@ license-check:
     key: license-${CI_COMMIT_REF_SLUG}
     paths: [.cargo/, src-tauri/target/]
   rules:
+    - if: $RPA_AFTER_RELEASE == "1"
+      when: never
     - if: $CI_COMMIT_BRANCH == "main"
     - if: $CI_COMMIT_TAG
 
@@ -229,9 +239,103 @@ site-e2e:
       echo 'download badges OK'
       echo "=== Site E2E PASSED ==="
   rules:
-    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "main" && $RPA_AFTER_RELEASE != "1"
   variables:
     SITE_E2E_BASE: "http://10.0.0.10:5080"
+
+# ── RPA on rpa-win (Unraid LAN → WinRM) ──────────
+# Primary post-release GUI gate. GitHub Actions windows-latest is secondary.
+# Triggered automatically when GitHub release job commits releases.json and
+# POSTs a pipeline with RPA_AFTER_RELEASE=1 (see sync-website-releases-to-gitlab.sh).
+#
+# GitLab CI/CD variables (masked, protected=false):
+#   VOID_RPA_WIN_PASS  — password for rpa-win (never commit)
+#   VOID_RPA_WIN_USER  — default rpa-win
+#   VOID_RPA_WIN_HOST  — default 10.0.0.28
+# Guest must have an Active console session (VNC login once after reboot).
+
+rpa-windows:
+  stage: e2e
+  image: python:3.12-slim
+  needs: []
+  timeout: 2h
+  allow_failure: true
+  variables:
+    VOID_RPA_WIN_HOST: "10.0.0.28"
+    VOID_RPA_WIN_USER: "rpa-win"
+    VOID_RPA_MIRROR_DIR: "/mnt/user/appdata/void-rpa-artifacts"
+  before_script:
+    - pip install --no-cache-dir pywinrm requests
+  script:
+    - |
+      set -eu
+      echo "=== RPA Windows via WinRM → ${VOID_RPA_WIN_HOST} ==="
+      if [ -z "${VOID_RPA_WIN_PASS:-}" ]; then
+        echo "BLOCKER: set GitLab CI variable VOID_RPA_WIN_PASS (masked, protected=false)"
+        echo "  Never commit the password. Guest: rpa-win @ 10.0.0.28"
+        exit 1
+      fi
+      TAG="${RELEASE_TAG:-${CI_COMMIT_TAG:-}}"
+      echo "RELEASE_TAG=${TAG:-"(latest via releases.json)"}"
+      EXTRA=""
+      if [ -n "$TAG" ]; then
+        EXTRA="--release-tag $TAG --wait-github"
+      fi
+      python3 scripts/ci/rpa-winrm.py \
+        --sync-repo \
+        --download-install \
+        --timeout-sec "${RPA_TIMEOUT_SEC:-1800}" \
+        $EXTRA
+    - |
+      set -eu
+      latest=$(ls -1dt artifacts/rpa/*/ 2>/dev/null | head -n1 || true)
+      if [ -z "$latest" ]; then
+        echo "No artifacts/rpa/* pulled"
+        exit 1
+      fi
+      echo "Artifacts: $latest"
+      test -f "${latest}report.json"
+      python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print('ok=',d.get('ok'));
+[print(('PASS' if s.get('ok') else 'FAIL'), s.get('name')) for s in d.get('scenarios') or []];
+sys.exit(0 if d.get('ok') else 1)" "${latest}report.json"
+  artifacts:
+    when: always
+    paths:
+      - artifacts/rpa/
+    expire_in: 30 days
+  rules:
+    # Automatic: pipeline created by GitHub release sync (RPA_AFTER_RELEASE=1)
+    - if: $RPA_AFTER_RELEASE == "1"
+    # Manual play from any main / tag pipeline (test without a new release)
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
+    - if: $CI_COMMIT_TAG =~ /^v/
+      when: manual
+      allow_failure: true
+
+# Keep rpa-win git tree fresh on every main push (harness + docs).
+sync-rpa-win-repo:
+  stage: notify
+  image: python:3.12-slim
+  needs: []
+  allow_failure: true
+  variables:
+    VOID_RPA_WIN_HOST: "10.0.0.28"
+    VOID_RPA_WIN_USER: "rpa-win"
+  before_script:
+    - pip install --no-cache-dir pywinrm requests
+  script:
+    - |
+      set -eu
+      if [ -z "${VOID_RPA_WIN_PASS:-}" ]; then
+        echo "VOID_RPA_WIN_PASS not set — skip VM sync"
+        exit 0
+      fi
+      python3 scripts/ci/rpa-winrm.py --sync-repo-only
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" && $RPA_AFTER_RELEASE != "1"
+
 
 # ── SYNC website/releases.json FROM GITHUB ───────
 # Durable automation: after a GitHub Release (or on schedule), rewrite

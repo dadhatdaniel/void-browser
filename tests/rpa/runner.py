@@ -44,6 +44,16 @@ VOID_SITE_LAN_URL = os.environ.get("VOID_SITE_LAN_URL", "http://10.0.0.10:5080/"
 VOID_SITE_LAN_DOWNLOAD_URL = VOID_SITE_LAN_URL + "#download"
 VOID_SITE_PUBLIC_URL = os.environ.get("VOID_SITE_PUBLIC_URL", "https://void.lightfoot.cloud/").rstrip("/") + "/"
 RELEASES_JSON_URL = os.environ.get("VOID_RELEASES_JSON_URL", VOID_SITE_LAN_URL.rstrip("/") + "/releases.json")
+LATEST_JSON_URL = os.environ.get(
+    "VOID_RPA_LATEST_JSON_URL",
+    "https://github.com/dadhatdaniel/void-browser/releases/latest/download/latest.json",
+)
+GH_RELEASES_API = os.environ.get(
+    "VOID_RPA_GH_RELEASES_API",
+    "https://api.github.com/repos/dadhatdaniel/void-browser/releases",
+)
+# Older portable used by auto_update (must be behind whatever latest.json advertises).
+DEFAULT_OLD_TAG = os.environ.get("VOID_RPA_OLD_TAG", "v0.1.0-alpha.15")
 MIN_PORTABLE_BYTES = 1_000_000
 MIN_SETUP_BYTES = 500_000
 
@@ -328,9 +338,171 @@ def assert_content_not_blank(s: RpaSession, shot_name: str, label: str) -> Step:
 
 def http_get_json(url: str, timeout: float = 30.0) -> dict[str, Any]:
     req = urllib.request.Request(url, headers={"User-Agent": "VoidBrowser-RPA/1.0"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        raw = resp.read()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            status = getattr(resp, "status", 200)
+            raw = resp.read()
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"HTTP {e.code} fetching {url}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"URL error fetching {url}: {e}") from e
+    if status == 404:
+        raise RuntimeError(f"HTTP 404 fetching {url}")
     return json.loads(raw.decode("utf-8"))
+
+
+def http_get_json_list(url: str, timeout: float = 30.0) -> list[Any]:
+    data = http_get_json(url, timeout=timeout)
+    if not isinstance(data, list):
+        raise RuntimeError(f"expected JSON array from {url}")
+    return data
+
+
+def validate_latest_json(manifest: dict[str, Any]) -> tuple[bool, str]:
+    """Fail if latest.json is missing windows URLs or points at the wrong host."""
+    version = str(manifest.get("version") or "").strip()
+    platforms = manifest.get("platforms") or {}
+    win = platforms.get("windows-x86_64") or {}
+    url = str(win.get("url") or "").strip()
+    sig = str(win.get("signature") or "").strip()
+    if not version:
+        return False, "latest.json missing version"
+    if not url:
+        return False, "latest.json missing platforms.windows-x86_64.url"
+    if "github.com/dadhatdaniel/void-browser" not in url:
+        return False, f"windows url not on expected GitHub repo: {url}"
+    if "/releases/download/" not in url:
+        return False, f"windows url not a release download: {url}"
+    if not sig:
+        return False, "latest.json missing platforms.windows-x86_64.signature"
+    return True, f"version={version} url={url}"
+
+
+def resolve_older_portable_url(latest_version: str) -> tuple[str, str]:
+    """
+    Return (tag, portable_url) for a build older than latest_version.
+    Prefers VOID_RPA_OLD_TAG / DEFAULT_OLD_TAG when that asset exists.
+    """
+    pinned = os.environ.get("VOID_RPA_OLD_PORTABLE_URL", "").strip()
+    if pinned:
+        tag = os.environ.get("VOID_RPA_OLD_TAG", "pinned").strip() or "pinned"
+        return tag, pinned
+
+    prefer = (os.environ.get("VOID_RPA_OLD_TAG") or DEFAULT_OLD_TAG).strip()
+    prefer_url = (
+        f"https://github.com/dadhatdaniel/void-browser/releases/download/"
+        f"{prefer}/void-browser.exe"
+    )
+    # Probe preferred tag first (HEAD via GET range would be nicer; try small GET).
+    try:
+        req = urllib.request.Request(
+            prefer_url,
+            method="HEAD",
+            headers={"User-Agent": "VoidBrowser-RPA/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            if getattr(resp, "status", 200) < 400:
+                return prefer, prefer_url
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Fall back: first release (after latest) that ships void-browser.exe.
+    try:
+        releases = http_get_json_list(f"{GH_RELEASES_API}?per_page=15")
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(f"cannot resolve older portable: {e}") from e
+
+    for rel in releases:
+        tag = str(rel.get("tag_name") or "")
+        ver = tag.lstrip("v")
+        if not tag:
+            continue
+        if ver == latest_version or tag.lstrip("v") == latest_version.lstrip("v"):
+            continue
+        names = {a.get("name") for a in (rel.get("assets") or [])}
+        if "void-browser.exe" not in names:
+            continue
+        url = (
+            f"https://github.com/dadhatdaniel/void-browser/releases/download/"
+            f"{tag}/void-browser.exe"
+        )
+        return tag, url
+
+    raise RuntimeError(
+        f"no older void-browser.exe found (tried {prefer}; latest={latest_version})"
+    )
+
+
+def find_update_dialog(timeout: float = 12.0):
+    """Best-effort find native 'Update available' / Void Browser dialog."""
+    from pywinauto import Desktop
+
+    desktop = Desktop(backend="uia")
+    deadline = time.time() + timeout
+    last_err: Optional[Exception] = None
+    while time.time() < deadline:
+        for title_re in (
+            ".*Update available.*",
+            ".*Void Browser.*",
+            ".*update.*",
+        ):
+            try:
+                win = desktop.window(title_re=title_re)
+                if win.exists(timeout=0.4):
+                    text = (win.window_text() or "").lower()
+                    # Prefer the update prompt; allow generic Void info dialogs too.
+                    if "update" in text or "available" in text or "latest version" in text:
+                        return win
+            except Exception as e:  # noqa: BLE001
+                last_err = e
+        time.sleep(0.4)
+    if last_err:
+        return None
+    return None
+
+
+def dismiss_update_dialog(dlg) -> str:
+    """Click Later / Cancel / Esc so the suite can continue."""
+    if dlg is None:
+        return "no dialog"
+    for title in ("Later", "Cancel", "OK", "Close"):
+        try:
+            btn = dlg.child_window(title=title, control_type="Button")
+            if btn.exists(timeout=0.5):
+                btn.click_input()
+                time.sleep(0.5)
+                return f"clicked {title}"
+        except Exception:  # noqa: BLE001
+            continue
+    try:
+        dlg.type_keys("{ESC}")
+        time.sleep(0.4)
+        return "sent Escape"
+    except Exception as e:  # noqa: BLE001
+        return f"dismiss failed: {e}"
+
+
+def click_check_for_updates(s: RpaSession) -> str:
+    """Open Settings and activate the Check for updates button."""
+    s.open_settings()
+    time.sleep(0.6)
+    # Settings panel can be long — PageDown toward Updates / About.
+    for _ in range(4):
+        s.type_keys("{PGDN}")
+        time.sleep(0.15)
+    try:
+        btn = s.win.child_window(title="Check for updates", control_type="Button")
+        btn.wait("exists", timeout=6)
+        btn.click_input()
+        return "clicked Check for updates"
+    except Exception as e:  # noqa: BLE001
+        # Fallback: AutomationId if exposed by WebView2/Tauri.
+        try:
+            btn = s.win.child_window(auto_id="check-updates-btn", control_type="Button")
+            btn.click_input()
+            return "clicked check-updates-btn"
+        except Exception as e2:  # noqa: BLE001
+            raise RuntimeError(f"Check for updates button not found: {e}; {e2}") from e2
 
 
 def http_download(url: str, dest: Path, timeout: float = 300.0, min_bytes: int = 0) -> int:
@@ -1075,6 +1247,260 @@ def scenario_visit_void_site(s: RpaSession) -> ScenarioResult:
         )
 
 
+def scenario_auto_update(s: RpaSession) -> ScenarioResult:
+    """
+    Stage an older Windows portable, launch it, trigger Check for updates,
+    and assert GitHub latest.json is reachable with correct URLs + update UI.
+
+    Pass criteria (all required unless noted):
+      - latest.json HTTP 200 (fail hard on 404)
+      - windows-x86_64.url on github.com/dadhatdaniel/void-browser releases
+      - older portable downloaded and launched
+      - update dialog appears OR Settings status / dialog proves fetch worked
+    Does not install the update (clicks Later) so the suite can finish.
+    """
+    steps: list[Step] = []
+    t0 = time.time()
+    old_exe: Optional[Path] = None
+    previous_exe = Path(s.exe)
+    try:
+        # ── 1. latest.json must exist with sane Windows URLs ──────────────
+        try:
+            manifest = http_get_json(LATEST_JSON_URL)
+            ok_manifest, detail = validate_latest_json(manifest)
+            steps.append(Step("fetch_latest_json", ok_manifest, detail, None))
+            if not ok_manifest:
+                return ScenarioResult(
+                    "auto_update",
+                    False,
+                    steps,
+                    error=detail,
+                    duration_sec=time.time() - t0,
+                )
+        except Exception as e:  # noqa: BLE001
+            msg = str(e)
+            steps.append(Step("fetch_latest_json", False, msg, None))
+            return ScenarioResult(
+                "auto_update",
+                False,
+                steps,
+                error=msg,
+                duration_sec=time.time() - t0,
+            )
+
+        latest_ver = str(manifest.get("version") or "")
+        win_url = str((manifest.get("platforms") or {}).get("windows-x86_64", {}).get("url") or "")
+
+        # ── 2. Resolve + download older portable ──────────────────────────
+        try:
+            old_tag, old_url = resolve_older_portable_url(latest_ver)
+            steps.append(
+                Step(
+                    "resolve_older_build",
+                    True,
+                    f"tag={old_tag} url={old_url} latest={latest_ver}",
+                    None,
+                )
+            )
+        except Exception as e:  # noqa: BLE001
+            steps.append(Step("resolve_older_build", False, str(e), None))
+            return ScenarioResult(
+                "auto_update",
+                False,
+                steps,
+                error=str(e),
+                duration_sec=time.time() - t0,
+            )
+
+        old_dir = DEFAULT_DOWNLOAD_DIR / "old"
+        old_dir.mkdir(parents=True, exist_ok=True)
+        old_exe = old_dir / f"void-browser-{old_tag.lstrip('v')}.exe"
+        try:
+            need = (
+                not old_exe.is_file()
+                or old_exe.stat().st_size < MIN_PORTABLE_BYTES
+            )
+            if need:
+                nbytes = http_download(old_url, old_exe, min_bytes=MIN_PORTABLE_BYTES)
+            else:
+                nbytes = old_exe.stat().st_size
+            steps.append(
+                Step(
+                    "download_older_portable",
+                    True,
+                    f"{old_exe.name} {nbytes} bytes from {old_url}",
+                    None,
+                )
+            )
+        except Exception as e:  # noqa: BLE001
+            steps.append(Step("download_older_portable", False, str(e), None))
+            return ScenarioResult(
+                "auto_update",
+                False,
+                steps,
+                error=str(e),
+                duration_sec=time.time() - t0,
+            )
+
+        # ── 3. Relaunch on older build (startup quiet check ~4s) ───────────
+        try:
+            s.restart(old_exe)
+            # Startup check fires after ~4s; give it a moment.
+            time.sleep(5.0)
+            launch_shot = s.shot("auto_update_older_launch")
+            steps.append(
+                Step(
+                    "launch_older_build",
+                    s.alive(),
+                    f"exe={old_exe} title={s.window_title()!r}",
+                    launch_shot,
+                )
+            )
+        except Exception as e:  # noqa: BLE001
+            steps.append(Step("launch_older_build", False, str(e), None))
+            return ScenarioResult(
+                "auto_update",
+                False,
+                steps,
+                error=str(e),
+                duration_sec=time.time() - t0,
+            )
+
+        dialog_seen = False
+        dialog_detail = ""
+
+        # Startup quiet check may already show "Update available".
+        dlg = find_update_dialog(timeout=6.0)
+        if dlg is not None:
+            dialog_seen = True
+            dlg_shot = s.shot("auto_update_startup_dialog")
+            try:
+                dialog_detail = f"startup dialog title={dlg.window_text()!r}"
+            except Exception:  # noqa: BLE001
+                dialog_detail = "startup dialog present"
+            steps.append(Step("startup_update_prompt", True, dialog_detail, dlg_shot))
+            dismiss_update_dialog(dlg)
+            time.sleep(0.5)
+        else:
+            steps.append(
+                Step(
+                    "startup_update_prompt",
+                    True,
+                    "no startup dialog yet (will try Settings)",
+                    None,
+                )
+            )
+
+        # ── 4. Settings → Check for updates ───────────────────────────────
+        if not dialog_seen:
+            try:
+                how = click_check_for_updates(s)
+                time.sleep(2.0)
+                settings_shot = s.shot("auto_update_settings_check")
+                steps.append(Step("click_check_for_updates", True, how, settings_shot))
+            except Exception as e:  # noqa: BLE001
+                # Soft on UIA button find if latest.json already validated —
+                # still fail overall if no dialog either.
+                steps.append(Step("click_check_for_updates", False, str(e), s.shot("auto_update_settings_fail")))
+
+            dlg = find_update_dialog(timeout=15.0)
+            if dlg is not None:
+                dialog_seen = True
+                dlg_shot = s.shot("auto_update_dialog")
+                try:
+                    dialog_detail = f"dialog title={dlg.window_text()!r}"
+                except Exception:  # noqa: BLE001
+                    dialog_detail = "update dialog present"
+                steps.append(Step("update_available_dialog", True, dialog_detail, dlg_shot))
+                dismiss_update_dialog(dlg)
+            else:
+                steps.append(
+                    Step(
+                        "update_available_dialog",
+                        False,
+                        "no Update available dialog after Check for updates",
+                        s.shot("auto_update_no_dialog"),
+                    )
+                )
+            try:
+                s.close_settings()
+            except Exception:  # noqa: BLE001
+                pass
+        else:
+            steps.append(
+                Step(
+                    "click_check_for_updates",
+                    True,
+                    "skipped (startup dialog already proved updater path)",
+                    None,
+                )
+            )
+            steps.append(
+                Step("update_available_dialog", True, dialog_detail or "seen at startup", None)
+            )
+
+        # Evidence that latest.json windows URL matches expected release asset pattern.
+        steps.append(
+            Step(
+                "latest_json_windows_url",
+                "github.com/dadhatdaniel/void-browser/releases/download/" in win_url,
+                win_url,
+                None,
+            )
+        )
+
+        # Hard requirements: latest.json OK + older launch OK + (dialog OR we at least
+        # proved latest.json + clicked check without network 404). Dialog is preferred.
+        hard = [
+            st
+            for st in steps
+            if st.name
+            in (
+                "fetch_latest_json",
+                "download_older_portable",
+                "launch_older_build",
+                "latest_json_windows_url",
+            )
+        ]
+        soft_dialog = next(
+            (st for st in steps if st.name == "update_available_dialog"),
+            None,
+        )
+        ok = all(st.ok for st in hard) and (soft_dialog is None or soft_dialog.ok)
+        # If UIA cannot find the dialog on a headless-ish runner but latest.json is
+        # valid and older build launched, still fail — user asked to assert prompt
+        # or at least updater reaches latest.json without 404. Dialog is the UI proof.
+        if not ok:
+            err = "auto_update failed (latest.json, older build, or update dialog)"
+        else:
+            err = None
+
+        return ScenarioResult(
+            "auto_update",
+            ok,
+            steps,
+            error=err,
+            duration_sec=time.time() - t0,
+            new_exe=str(old_exe) if old_exe else None,
+        )
+    except Exception as e:  # noqa: BLE001
+        try:
+            fail_shot = s.shot("auto_update_fail")
+        except Exception:  # noqa: BLE001
+            fail_shot = None
+        steps.append(Step("auto_update", False, str(e), fail_shot))
+        return ScenarioResult(
+            "auto_update", False, steps, error=str(e), duration_sec=time.time() - t0
+        )
+    finally:
+        # Restore previous exe for any subsequent scenarios (if any).
+        try:
+            if previous_exe.is_file() and s.exe.resolve() != previous_exe.resolve():
+                s.restart(previous_exe)
+        except Exception:  # noqa: BLE001
+            pass
+
+
 SCENARIOS: dict[str, Callable[[RpaSession], ScenarioResult]] = {
     "download_install": scenario_download_install,
     "app_launch": scenario_app_launch,
@@ -1085,11 +1511,12 @@ SCENARIOS: dict[str, Callable[[RpaSession], ScenarioResult]] = {
     "new_tab": scenario_new_tab,
     "youtube_signin_page": scenario_youtube_signin_page,
     "context_menu": scenario_context_menu,
+    "auto_update": scenario_auto_update,
 }
 
 DEFAULT_SCENARIOS = (
     "download_install,app_launch,smoke_navigate,nav_history,visit_void_site,"
-    "settings_preserves_tab,new_tab,youtube_signin_page,context_menu"
+    "settings_preserves_tab,new_tab,youtube_signin_page,context_menu,auto_update"
 )
 
 
@@ -1119,6 +1546,7 @@ def write_report(out_dir: Path, exe: Path, results: list[ScenarioResult], meta: 
             "visit_void_site: confirm VOID hero on LAN :5080 + Get Void buttons; public URL is optional/CF-ok.",
             "settings_preserves_tab: confirm the site content returns after Esc/Done.",
             "youtube_signin_page: confirm Google sign-in UI is visible (not a Void block page).",
+            "auto_update: fail if latest.json 404/wrong URLs; expect Update available dialog from older build.",
         ],
     }
     path = out_dir / "report.json"

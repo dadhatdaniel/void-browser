@@ -20,7 +20,7 @@ param(
   [PSCredential]$Credential,
   [string]$RemoteRoot = "C:\void-browser",
   [string]$ExePath = "C:\void-browser\dist\void-browser.exe",
-  [string]$Scenarios = "download_install,app_launch,smoke_navigate,nav_history,visit_void_site,settings_preserves_tab,new_tab,youtube_signin_page,context_menu",
+  [string]$Scenarios = "download_install,app_launch,smoke_navigate,nav_history,visit_void_site,settings_preserves_tab,new_tab,youtube_signin_page,context_menu,auto_update",
   [switch]$SmokeOnly,
   [switch]$DownloadInstall,
   [switch]$SkipPull,
@@ -92,6 +92,7 @@ try {
     "tests\rpa\runner.py",
     "tests\rpa\requirements.txt",
     "scripts\run-rpa-windows.ps1",
+    "scripts\rpa-after-release.ps1",
     "docs\RPA_TESTING.md"
   )
   foreach ($rel in $toPush) {

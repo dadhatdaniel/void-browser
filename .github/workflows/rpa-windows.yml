@@ -1,8 +1,21 @@
 # Void Browser — Windows RPA (screenshots + report.json)
-# Manual / nightly. allow_failure via continue-on-error until runner GUI is stable.
+#
+# Triggers:
+#   - release published  → download that release's Windows portable + run suite
+#                          (including auto_update). Primary post-release gate.
+#   - workflow_dispatch  → manual
+#   - schedule (nightly) → build unsigned NSIS + smoke subset
+#
+# GitLab has no Windows GUI runners — RPA stays on GitHub Actions (and optional
+# Unraid void-rpa-windows via scripts/rpa-remote-run.ps1 / rpa-after-release.ps1).
+#
+# continue-on-error: UIA on windows-latest can be flaky; artifacts still upload.
 name: RPA Windows
 
 on:
+  # Path A — after Build & Release publishes a GitHub Release (latest.json + exes).
+  release:
+    types: [published]
   workflow_dispatch:
   schedule:
     # Nightly 06:15 UTC
@@ -14,35 +27,13 @@ permissions:
 jobs:
   rpa-windows:
     runs-on: windows-latest
-    # Initial land: do not block other workflows if UIA is flaky on the runner.
+    # Do not block release publishing if UIA is flaky on the hosted runner.
     continue-on-error: true
     permissions:
       contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2" --locked
-
-      - name: Disable updater artifacts for unsigned CI build
-        shell: bash
-        run: |
-          jq '.bundle.createUpdaterArtifacts = false | .bundle.targets = ["nsis"]' \
-            src-tauri/tauri.conf.json > /tmp/tauri.conf.json
-          mv /tmp/tauri.conf.json src-tauri/tauri.conf.json
-
-      - name: Build Windows exe
-        shell: bash
-        run: cargo tauri build --bundles nsis
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -55,19 +46,94 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r tests/rpa/requirements.txt
 
-      - name: Run RPA smoke + settings
+      # ── Release path: use the NEW published portable (no rebuild) ─────────
+      - name: Download published Windows portable
+        if: github.event_name == 'release'
         shell: pwsh
         env:
-          VOID_TEST_GOOGLE_USER: ${{ secrets.VOID_TEST_GOOGLE_USER }}
-          VOID_TEST_GOOGLE_PASS: ${{ secrets.VOID_TEST_GOOGLE_PASS }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          New-Item -ItemType Directory -Force -Path dist, downloads/rpa | Out-Null
+          $portable = "https://github.com/dadhatdaniel/void-browser/releases/download/$env:TAG/void-browser.exe"
+          Write-Host "Downloading $portable"
+          Invoke-WebRequest -Uri $portable -OutFile "dist/void-browser.exe" -UseBasicParsing -TimeoutSec 300
+          if ((Get-Item "dist/void-browser.exe").Length -lt 1000000) {
+            throw "portable too small after download from $portable"
+          }
+          # Sanity: latest.json must exist for auto_update (fail early if release forgot it).
+          $lj = "https://github.com/dadhatdaniel/void-browser/releases/latest/download/latest.json"
+          try {
+            Invoke-WebRequest -Uri $lj -OutFile "downloads/rpa/latest.json" -UseBasicParsing -TimeoutSec 60
+          } catch {
+            throw "latest.json missing or unreachable ($lj): $_"
+          }
+          Write-Host "Release portable ready: $((Get-Item dist/void-browser.exe).Length) bytes; tag=$env:TAG"
+
+      # ── Manual / nightly: build unsigned Windows exe ─────────────────────
+      - name: Install Rust
+        if: github.event_name != 'release'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        if: github.event_name != 'release'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Tauri CLI
+        if: github.event_name != 'release'
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Disable updater artifacts for unsigned CI build
+        if: github.event_name != 'release'
+        shell: bash
+        run: |
+          jq '.bundle.createUpdaterArtifacts = false | .bundle.targets = ["nsis"]' \
+            src-tauri/tauri.conf.json > /tmp/tauri.conf.json
+          mv /tmp/tauri.conf.json src-tauri/tauri.conf.json
+
+      - name: Build Windows exe
+        if: github.event_name != 'release'
+        shell: bash
+        run: cargo tauri build --bundles nsis
+
+      - name: Locate built exe
+        if: github.event_name != 'release'
+        id: find_exe
+        shell: pwsh
         run: |
           $exe = Get-ChildItem -Path "src-tauri/target/release" -Filter "void-browser.exe" -Recurse |
             Select-Object -First 1
           if (-not $exe) { throw "void-browser.exe missing" }
-          # Prefer smoke + settings first; full set can be enabled later.
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item -Force $exe.FullName "dist/void-browser.exe"
+          Write-Host "Staged $($exe.FullName) -> dist/void-browser.exe"
+
+      - name: Run RPA (release — smoke + auto_update)
+        if: github.event_name == 'release'
+        shell: pwsh
+        env:
+          VOID_TEST_GOOGLE_USER: ${{ secrets.VOID_TEST_GOOGLE_USER }}
+          VOID_TEST_GOOGLE_PASS: ${{ secrets.VOID_TEST_GOOGLE_PASS }}
+          # Prefer alpha.15 (or override) so Check for updates should prompt.
+          VOID_RPA_OLD_TAG: v0.1.0-alpha.15
+        run: |
           python tests/rpa/runner.py `
-            --exe $exe.FullName `
-            --scenarios "smoke_navigate,settings_preserves_tab,youtube_signin_page" `
+            --exe (Resolve-Path dist/void-browser.exe) `
+            --scenarios "app_launch,smoke_navigate,settings_preserves_tab,auto_update" `
+            --launch-wait 6
+
+      - name: Run RPA smoke + settings + auto_update
+        if: github.event_name != 'release'
+        shell: pwsh
+        env:
+          VOID_TEST_GOOGLE_USER: ${{ secrets.VOID_TEST_GOOGLE_USER }}
+          VOID_TEST_GOOGLE_PASS: ${{ secrets.VOID_TEST_GOOGLE_PASS }}
+          VOID_RPA_OLD_TAG: v0.1.0-alpha.15
+        run: |
+          python tests/rpa/runner.py `
+            --exe (Resolve-Path dist/void-browser.exe) `
+            --scenarios "smoke_navigate,settings_preserves_tab,youtube_signin_page,auto_update" `
             --launch-wait 6
 
       - name: Upload RPA artifacts
