@@ -14,9 +14,18 @@ name: RPA Windows
 
 on:
   # Path A — after Build & Release publishes a GitHub Release (latest.json + exes).
+  # NOTE: releases created with the default GITHUB_TOKEN do NOT fire this event
+  # for other workflows. Build & Release therefore also workflow_dispatch-es us
+  # with release_tag set (requires GH_WORKFLOW_TOKEN on Environment `release`).
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "If set (e.g. v0.1.0-alpha.17), download that GitHub Release portable instead of building"
+        required: false
+        type: string
+        default: ""
   schedule:
     # Nightly 06:15 UTC
     - cron: "15 6 * * *"
@@ -31,6 +40,10 @@ jobs:
     continue-on-error: true
     permissions:
       contents: read
+    env:
+      # release event OR manual/dispatch with release_tag → use published portable
+      USE_RELEASE_PORTABLE: ${{ github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '') }}
+      RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -48,11 +61,12 @@ jobs:
 
       # ── Release path: use the NEW published portable (no rebuild) ─────────
       - name: Download published Windows portable
-        if: github.event_name == 'release'
+        if: env.USE_RELEASE_PORTABLE == 'true'
         shell: pwsh
         env:
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ env.RELEASE_TAG }}
         run: |
+          if (-not $env:TAG) { throw "RELEASE_TAG empty" }
           New-Item -ItemType Directory -Force -Path dist, downloads/rpa | Out-Null
           $portable = "https://github.com/dadhatdaniel/void-browser/releases/download/$env:TAG/void-browser.exe"
           Write-Host "Downloading $portable"
@@ -71,21 +85,21 @@ jobs:
 
       # ── Manual / nightly: build unsigned Windows exe ─────────────────────
       - name: Install Rust
-        if: github.event_name != 'release'
+        if: env.USE_RELEASE_PORTABLE != 'true'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Rust cache
-        if: github.event_name != 'release'
+        if: env.USE_RELEASE_PORTABLE != 'true'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
 
       - name: Install Tauri CLI
-        if: github.event_name != 'release'
+        if: env.USE_RELEASE_PORTABLE != 'true'
         run: cargo install tauri-cli --version "^2" --locked
 
       - name: Disable updater artifacts for unsigned CI build
-        if: github.event_name != 'release'
+        if: env.USE_RELEASE_PORTABLE != 'true'
         shell: bash
         run: |
           jq '.bundle.createUpdaterArtifacts = false | .bundle.targets = ["nsis"]' \
@@ -93,12 +107,12 @@ jobs:
           mv /tmp/tauri.conf.json src-tauri/tauri.conf.json
 
       - name: Build Windows exe
-        if: github.event_name != 'release'
+        if: env.USE_RELEASE_PORTABLE != 'true'
         shell: bash
         run: cargo tauri build --bundles nsis
 
       - name: Locate built exe
-        if: github.event_name != 'release'
+        if: env.USE_RELEASE_PORTABLE != 'true'
         id: find_exe
         shell: pwsh
         run: |
@@ -110,7 +124,7 @@ jobs:
           Write-Host "Staged $($exe.FullName) -> dist/void-browser.exe"
 
       - name: Run RPA (release — smoke + auto_update)
-        if: github.event_name == 'release'
+        if: env.USE_RELEASE_PORTABLE == 'true'
         shell: pwsh
         env:
           VOID_TEST_GOOGLE_USER: ${{ secrets.VOID_TEST_GOOGLE_USER }}
@@ -124,7 +138,7 @@ jobs:
             --launch-wait 6
 
       - name: Run RPA smoke + settings + auto_update
-        if: github.event_name != 'release'
+        if: env.USE_RELEASE_PORTABLE != 'true'
         shell: pwsh
         env:
           VOID_TEST_GOOGLE_USER: ${{ secrets.VOID_TEST_GOOGLE_USER }}

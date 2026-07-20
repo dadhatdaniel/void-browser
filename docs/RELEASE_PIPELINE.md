@@ -19,7 +19,7 @@ flowchart TD
   L --> M["git sync + download exe + full RPA"]
   M --> N["auto_update scenario"]
   M --> O["Artifacts: GitLab + optional Unraid mirror"]
-  E --> P["GHA RPA Windows secondary smoke"]
+  E --> P["GHA dispatch RPA Windows release_tag"]
 ```
 
 ## GitLab stage order
@@ -58,7 +58,7 @@ flowchart TD
 | Site deploy | `deploy-site` on `website/**` changes |
 | Site E2E | `site-e2e` after deploy stage (live `:5080`) |
 | RPA on rpa-win (incl. `auto_update`) | Push with `website/releases.json` changes, **or** API `RPA_AFTER_RELEASE=1` if already up to date |
-| GHA hosted RPA smoke | `.github/workflows/rpa-windows.yml` on `release: published` |
+| GHA hosted RPA smoke | Build & Release dispatches `.github/workflows/rpa-windows.yml` with `release_tag` (needs `GH_WORKFLOW_TOKEN` on env `release`) |
 | rpa-win repo refresh | `sync-rpa-win-repo` on each `main` push |
 
 ## Runner notes

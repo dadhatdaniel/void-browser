@@ -11,7 +11,7 @@ Linux/Unraid Docker **cannot** run this harness (no WebView2 GUI). See
 | Path | Today |
 |------|--------|
 | GitLab `rpa-windows` (WinRM → `10.0.0.28`) after GitHub Release | **Yes** — `sync-website-releases-to-gitlab.sh` POSTs `RPA_AFTER_RELEASE=1` |
-| GitHub Actions `RPA Windows` on `release: published` | **Yes** (hosted `windows-latest` smoke + `auto_update`; `continue-on-error`) |
+| GitHub Actions `RPA Windows` after release | **Yes** — Build & Release `workflow_dispatch`es with `release_tag` (needs Environment secret `GH_WORKFLOW_TOKEN`). Plain `on.release` alone is unreliable: `GITHUB_TOKEN`-created releases do not start sibling workflows. |
 | GitHub Actions nightly / `workflow_dispatch` | Yes |
 | Unraid cron / local `rpa-after-release.ps1` | Optional backup |
 
@@ -23,7 +23,7 @@ Linux/Unraid Docker **cannot** run this harness (no WebView2 GUI). See
 2. Build & Release publishes installers + signed `latest.json`.
 3. Release job syncs `website/releases.json` to GitLab → **deploy-site**.
 4. Same sync POSTs GitLab pipeline `RPA_AFTER_RELEASE=1` → **rpa-windows** WinRM to rpa-win (full suite incl. `auto_update`).
-5. Secondary: GitHub `release: published` starts hosted **RPA Windows**.
+5. Secondary: Build & Release dispatches hosted **RPA Windows** (`release_tag=v*`) via `GH_WORKFLOW_TOKEN`.
 
 Requires GitLab CI variable **`VOID_RPA_WIN_PASS`** (masked). The VM uses **rpa-win Autologon** so an Active console session exists after reboot without opening VNC (see [TEST_VMS.md](./TEST_VMS.md)).
 

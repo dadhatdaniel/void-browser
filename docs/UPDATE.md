@@ -61,9 +61,10 @@ Prefer **Environment secrets** on environment name **`release`** (Settings → E
 |--------|----------|---------|
 | `TAURI_SIGNING_PRIVATE_KEY` | **Yes for auto-updates** | Full contents of the minisign/ed25519 private key (paste key body; path is not used in CI) |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Optional | Only if the private key was generated with a password |
-| `GITLAB_TOKEN` | Recommended | PAT with `api` + `write_repository` so the release job can commit `website/releases.json` to GitLab |
-| `GITLAB_HOST` | Optional | Default `http://10.0.0.10:8929` |
+| `GITLAB_TOKEN` | Recommended | PAT with `api` + `write_repository` so the release job can commit `website/releases.json` to GitLab. **Note:** GitHub-hosted runners cannot reach LAN-only GitLab (`10.0.0.10`); sync soft-fails and falls back to GitLab `sync-releases-from-github`. |
+| `GITLAB_HOST` | Optional | Default `http://10.0.0.10:8929` (unreachable from GitHub runners without a tunnel) |
 | `GITLAB_PROJECT_ID` | Optional | Default `lightfootcloud%2Fvoid-browser` |
+| `GH_WORKFLOW_TOKEN` | **Required for GHA RPA after release** | Classic PAT (`repo` + `workflow`). Releases created with the default `GITHUB_TOKEN` do **not** fire `on.release` for sibling workflows — Build & Release dispatches **RPA Windows** with this PAT instead. |
 
 Also configure on Environment **`release`**:
 
