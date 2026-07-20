@@ -414,6 +414,14 @@ jobs:
           echo "=== Checksums ==="
           find artifacts -type f \( -name '*.deb' -o -name '*.AppImage' -o -name '*.msi' -o -name '*.exe' -o -name '*.dmg' -o -name '*.tar.gz' \) -exec sha256sum {} \;
 
+      - name: Generate website/releases.json
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: dadhatdaniel/void-browser
+          ARTIFACTS_DIR: artifacts
+          OUT: artifacts/releases.json
+        run: bash scripts/generate-website-releases-json.sh
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -464,4 +472,13 @@ jobs:
             **Website:** [void.lightfoot.cloud](https://void.lightfoot.cloud)
             **Security model:** [docs/SECURITY.md](https://github.com/dadhatdaniel/void-browser/blob/main/docs/SECURITY.md)
           draft: false
-          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+          # GitHub /releases/latest ignores prereleases; keep alpha in version string only.
+          prerelease: false
+
+      - name: Sync website/releases.json to GitLab
+        env:
+          TAG: ${{ github.ref_name }}
+          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+          GITLAB_PROJECT_ID: ${{ secrets.GITLAB_PROJECT_ID }}
+          GITLAB_HOST: ${{ secrets.GITLAB_HOST }}
+        run: bash scripts/sync-website-releases-to-gitlab.sh

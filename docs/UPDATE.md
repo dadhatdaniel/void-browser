@@ -24,7 +24,29 @@ Source of truth for git remains **GitLab** (`lightfootcloud/void-browser`). Push
 
 ### Prereleases / “latest”
 
-GitHub’s `/releases/latest` prefers non-draft releases marked as the latest. The release workflow sets `make_latest: true` so alpha tags still publish a resolvable `latest.json` URL for early-access testing.
+GitHub’s `/releases/latest` API **ignores prereleases entirely** — even when
+`make_latest: true` is set. If every release is marked `prerelease: true`, then
+
+```
+https://github.com/dadhatdaniel/void-browser/releases/latest/download/latest.json
+```
+
+returns **404** and in-app updates cannot run.
+
+The release workflow therefore sets **`prerelease: false`** (version string still
+carries `alpha.N`) plus `make_latest: true`, so the pinned updater URL resolves.
+Asset URLs inside `latest.json` must use GitHub’s stored names (`Void.Browser_…`,
+spaces → `.`); `scripts/generate-updater-manifest.sh` sanitizes that.
+
+### Website `releases.json`
+
+Previously updated by hand before `deploy-site`. Now:
+
+1. **Primary:** GitHub `release` job generates `artifacts/releases.json` and, when
+   Environment secret `GITLAB_TOKEN` is set, commits `website/releases.json` to
+   GitLab `main` (`scripts/sync-website-releases-to-gitlab.sh`) so deploy-site runs.
+2. **Fallback:** GitLab job `sync-releases-from-github` (schedule / manual /
+   `SYNC_RELEASES=1` pipeline) polls GitHub and commits the same file.
 
 ## Required GitHub secrets (user action)
 
@@ -34,6 +56,9 @@ Prefer **Environment secrets** on environment name **`release`** (Settings → E
 |--------|----------|---------|
 | `TAURI_SIGNING_PRIVATE_KEY` | **Yes for auto-updates** | Full contents of the minisign/ed25519 private key (paste key body; path is not used in CI) |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Optional | Only if the private key was generated with a password |
+| `GITLAB_TOKEN` | Recommended | PAT with `api` + `write_repository` so the release job can commit `website/releases.json` to GitLab |
+| `GITLAB_HOST` | Optional | Default `http://10.0.0.10:8929` |
+| `GITLAB_PROJECT_ID` | Optional | Default `lightfootcloud%2Fvoid-browser` |
 
 Also configure on Environment **`release`**:
 

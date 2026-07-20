@@ -54,6 +54,13 @@ read_sig() {
   tr -d '\r\n' < "$sig"
 }
 
+# GitHub Releases stores asset names with spaces replaced by '.'.
+# Local Tauri outputs keep spaces ("Void Browser_…"); URLs must match GitHub.
+github_asset_name() {
+  local name="$1"
+  echo "${name// /.}"
+}
+
 add_platform() {
   local key="$1"
   local file="$2"
@@ -66,12 +73,18 @@ add_platform() {
   fi
   local name
   name="$(basename "$file")"
-  local url="https://github.com/${REPO}/releases/download/${TAG}/${name}"
+  local asset_name
+  asset_name="$(github_asset_name "$name")"
+  local url="https://github.com/${REPO}/releases/download/${TAG}/${asset_name}"
   jq --arg key "$key" --arg url "$url" --arg sig "$sig" \
     '.platforms[$key] = {url: $url, signature: $sig}' \
     "$OUT" > "${OUT}.tmp"
   mv "${OUT}.tmp" "$OUT"
-  echo "[updater] + $key → $name"
+  if [[ "$asset_name" != "$name" ]]; then
+    echo "[updater] + $key → $asset_name (local name was '$name')"
+  else
+    echo "[updater] + $key → $asset_name"
+  fi
 }
 
 jq -n \

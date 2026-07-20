@@ -233,6 +233,43 @@ site-e2e:
   variables:
     SITE_E2E_BASE: "http://10.0.0.10:5080"
 
+# ── SYNC website/releases.json FROM GITHUB ───────
+# Durable automation: after a GitHub Release (or on schedule), rewrite
+# website/releases.json from the newest published release and commit if changed.
+# Primary path: GitHub release job commits via GITLAB_TOKEN.
+# Fallback: this job (manual / schedule / API pipeline trigger with SYNC_RELEASES=1).
+
+sync-releases-from-github:
+  stage: notify
+  image: alpine:latest
+  needs: []
+  before_script:
+    - apk add --no-cache curl jq git bash
+  script:
+    - |
+      set -eu
+      bash scripts/sync-website-releases-from-github.sh
+      if git diff --quiet -- website/releases.json \
+        && ! git status --porcelain -- website/releases.json | grep -q .; then
+        echo "releases.json already matches GitHub — nothing to commit"
+        exit 0
+      fi
+      TAG="$(jq -r .tag website/releases.json)"
+      git config user.email "ci@lightfoot.cloud"
+      git config user.name "void-browser-ci"
+      git add website/releases.json
+      git commit -m "chore(website): sync releases.json for ${TAG}"
+      git push "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}:${CI_SERVER_PORT:-80}/${CI_PROJECT_PATH}.git" "HEAD:${CI_COMMIT_REF_NAME}" \
+        || git push origin "HEAD:${CI_COMMIT_REF_NAME}"
+      echo "Committed and pushed website/releases.json for $TAG"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_PIPELINE_SOURCE == "pipeline" && $SYNC_RELEASES == "1"
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
+  allow_failure: true
+
 # ── TRIGGER GITHUB BUILD (tags) ──────────────────
 # Mirror-only is NOT enough: GitLab→GitHub push mirroring syncs tag refs but
 # often does NOT create a GitHub tag PushEvent, so on.push.tags never fires.
