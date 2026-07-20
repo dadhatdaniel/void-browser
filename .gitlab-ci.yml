@@ -309,6 +309,10 @@ rpa-windows:
   rules:
     # Automatic: pipeline created by GitHub release sync (RPA_AFTER_RELEASE=1)
     - if: $RPA_AFTER_RELEASE == "1"
+    # Automatic: website/releases.json commit from GitHub release sync
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - website/releases.json
     # Manual play from any main / tag pipeline (test without a new release)
     - if: $CI_COMMIT_BRANCH == "main"
       when: manual

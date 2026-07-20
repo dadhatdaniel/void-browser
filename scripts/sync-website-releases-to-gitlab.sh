@@ -34,6 +34,13 @@ trigger_post_release_pipeline() {
     echo "[sync] no GITLAB_TOKEN — cannot trigger RPA pipeline"
     return 0
   fi
+  # Prefer letting the releases.json commit pipeline run rpa-windows (changes: rule).
+  # Only POST a dedicated pipeline when we did not commit (already up to date),
+  # so auto-cancel on new main pushes does not kill the RPA job mid-queue.
+  if [[ "${DID_COMMIT:-0}" = "1" ]]; then
+    echo "[sync] releases.json committed — rpa-windows runs on that push (website/releases.json changes)"
+    return 0
+  fi
   echo "[sync] Triggering GitLab pipeline (RPA_AFTER_RELEASE=1 RELEASE_TAG=$TAG) ..."
   code=$(curl -sS -o /tmp/gl-pipe.json -w '%{http_code}' \
     -X POST \
@@ -57,9 +64,10 @@ trigger_post_release_pipeline() {
     echo "[sync] WARN: failed to trigger post-release pipeline (HTTP $code)" >&2
     return 0
   fi
-  echo "[sync] Post-release pipeline started (RPA via RPA_AFTER_RELEASE; site via releases.json commit)"
+  echo "[sync] Post-release RPA pipeline started"
 }
 
+DID_COMMIT=0
 if [[ -z "$TOKEN" ]]; then
   echo "[sync] GITLAB_TOKEN not set — skipping GitLab commit of $FILE_PATH"
   echo "[sync] Set GitHub Environment secret GITLAB_TOKEN (api+write_repository) on 'release'"
@@ -94,6 +102,7 @@ if [[ "$HTTP" = "200" ]]; then
     echo "$(jq -r '.content' /tmp/gl-file.json)" | base64 -d > /tmp/gl-old.json 2>/dev/null || true
     if [[ -f /tmp/gl-old.json ]] && cmp -s "$SRC" /tmp/gl-old.json; then
       echo "[sync] $FILE_PATH already up to date for $TAG — no commit"
+      DID_COMMIT=0
       trigger_post_release_pipeline
       exit 0
     fi
@@ -127,9 +136,11 @@ echo "[sync] GitLab API HTTP $code"
 cat /tmp/gl-put.json 2>/dev/null || true
 if [[ "$code" != "200" && "$code" != "201" ]]; then
   echo "[sync] FAILED to write $FILE_PATH" >&2
+  DID_COMMIT=0
   trigger_post_release_pipeline
   exit 1
 fi
-echo "[sync] Committed $FILE_PATH for $TAG → GitLab $BRANCH (deploy-site should follow on website/** changes)"
+DID_COMMIT=1
+echo "[sync] Committed $FILE_PATH for $TAG → GitLab $BRANCH (deploy-site + rpa-windows via changes rules)"
 trigger_post_release_pipeline
 exit 0

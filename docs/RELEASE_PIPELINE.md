@@ -32,6 +32,10 @@ flowchart TD
 | GHA hosted RPA smoke | `.github/workflows/rpa-windows.yml` on `release: published` |
 | rpa-win repo refresh | `sync-rpa-win-repo` on each `main` push |
 
+## Runner notes
+
+GitLab Unraid runners currently process ~1 job at a time. API pipelines with \RPA_AFTER_RELEASE=1\ can be **auto-canceled** if a newer \main\ push arrives while queued — that is why a successful \website/releases.json\ commit is preferred (same pipeline as deploy-site).
+
 ## Still manual / ops
 
 | Item | Why |
