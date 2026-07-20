@@ -505,13 +505,15 @@ jobs:
           fi
           echo "Dispatched RPA Windows for $TAG"
 
-      # Soft-fails when GitHub-hosted runners cannot reach private LAN GitLab.
-      # Release assets are already published; website sync has a GitLab fallback.
-      - name: Sync website/releases.json to GitLab
-        continue-on-error: true
-        env:
-          TAG: ${{ github.ref_name }}
-          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
-          GITLAB_PROJECT_ID: ${{ secrets.GITLAB_PROJECT_ID }}
-          GITLAB_HOST: ${{ secrets.GITLAB_HOST }}
-        run: bash scripts/sync-website-releases-to-gitlab.sh
+      # GitHub-hosted runners cannot reach private LAN GitLab (10.0.0.10).
+      # website/releases.json sync is owned entirely by GitLab CI:
+      #   sync-releases-from-github (schedule + after v* tags + SYNC_RELEASES=1)
+      # Do not rely on this step or agent fallback commits.
+      - name: Website releases.json sync (GitLab-owned — no-op from GHA)
+        run: |
+          set -euo pipefail
+          echo "Skipping GHA→GitLab releases.json sync (LAN GitLab unreachable from GitHub runners)."
+          echo "GitLab job sync-releases-from-github polls api.github.com from the Unraid runner,"
+          echo "commits website/releases.json to main, then deploy-site + rpa-* run via changes: rules."
+          echo "Docs: docs/RELEASE_PIPELINE.md"
+          echo "Tag: ${{ github.ref_name }}"

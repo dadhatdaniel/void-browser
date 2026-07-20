@@ -13,22 +13,23 @@
 #     rustfmt, clippy, cargo-audit, license-check, app-security,
 #     site-security, site-e2e,
 #     sync-rpa-win-repo, sync-rpa-linux-repo
-#     deploy-site          — only when website/** changed
+#     deploy-site          — only when website/** changed (job omitted otherwise)
 #     rpa-windows, rpa-linux — only when website/releases.json changed
 #   AUTO on MR:
 #     rustfmt, clippy, app-security, site-security
 #   AUTO on v* tag:
-#     cargo-audit, license-check, app-security, trigger-github-build
+#     cargo-audit, license-check, app-security, trigger-github-build,
+#     sync-releases-from-github (polls GitHub until assets exist → commits main)
 #   AUTO on schedule / API (SYNC_RELEASES=1):
-#     sync-releases-from-github
+#     sync-releases-from-github  — sole owner of website/releases.json sync
 #   AUTO on API (RPA_AFTER_RELEASE=1):
 #     rpa-windows + rpa-linux only (all other jobs skipped;
 #     VM sync jobs are skipped — rpa-* still --sync-repo themselves)
-#   MANUAL (Play required):
-#     virus-scan           — main + tags (never auto; binary VT)
-#     deploy-site          — main when website/** did NOT change
-#     rpa-windows, rpa-linux — main/tag when not an auto-release path
-#     sync-releases-from-github — main (fallback; primary sync is GHA→GitLab)
+#   OPTIONAL jobs (created only when vars/rules match — no always-on Play stubs):
+#     deploy-site          — DEPLOY_SITE=1 (Run pipeline)
+#     rpa-windows/linux    — RUN_RPA=1 or RUN_RPA_WINDOWS=1 / RUN_RPA_LINUX=1
+#     virus-scan           — Manual Play on v* tags / releases.json / VIRUS_SCAN=1
+#   GitLab is the sole sync of website/releases.json (GHA cannot reach 10.0.0.10).
 #
 # Security stages are DEFENSIVE only (audit / SAST greps / config / headers).
 # They do NOT generate exploits, PoCs, or scan third-party sites.
@@ -40,6 +41,9 @@
 # rpa-linux need their sync job (optional) so VMs get latest code first.
 # Do NOT put sync-rpa-* in `notify` after rpa, and do NOT leave rpa with
 # needs:[] alone — that raced sync and left VMs stale during RPA.
+#
+# CRITICAL: do NOT create deploy-site / rpa-* / sync-releases as when:manual on
+# every main push — those Play stubs clutter the UI. Use changes: or API vars.
 # ═══════════════════════════════════════════════════
 
 stages:
@@ -254,22 +258,45 @@ trigger-github-build:
   allow_failure: true
 
 # ── SYNC website/releases.json FROM GITHUB ───────
-# Durable automation: after a GitHub Release (or on schedule), rewrite
-# website/releases.json from the newest published release and commit if changed.
-# Primary path: GitHub release job commits via GITLAB_TOKEN.
-# Fallback: this job (manual / schedule / API pipeline trigger with SYNC_RELEASES=1).
-# Stage is before deploy so a played sync can land before site jobs in the UI;
-# a successful commit still triggers a fresh main pipeline that auto-deploys.
+# GitLab is the SOLE sync of website/releases.json (GHA cannot reach 10.0.0.10).
+# Auto on: schedule, v* tags (poll until assets), API/web with SYNC_RELEASES=1.
+# Always commits to main (even when the pipeline ref is a tag).
+# Successful commit → fresh main pipeline → deploy-site + rpa-* via changes:.
 
 sync-releases-from-github:
   stage: sync
   image: alpine:latest
   needs: []
+  timeout: 2h
   before_script:
     - apk add --no-cache curl jq git bash
   script:
     - |
       set -eu
+      TARGET_BRANCH="${SYNC_TARGET_BRANCH:-main}"
+      # Prefer classic PAT for higher GitHub rate limits when set on the project.
+      export GITHUB_TOKEN="${GH_WORKFLOW_TOKEN:-${GITHUB_TOKEN:-}}"
+
+      if [ -n "${CI_COMMIT_TAG:-}" ]; then
+        export TAG="${TAG:-$CI_COMMIT_TAG}"
+        # GHA multi-platform build often takes 20–60+ min; poll from Unraid.
+        export WAIT_ASSETS_SEC="${WAIT_ASSETS_SEC:-5400}"
+        export WAIT_ASSETS_INTERVAL="${WAIT_ASSETS_INTERVAL:-90}"
+        echo "Tag pipeline — waiting up to ${WAIT_ASSETS_SEC}s for GitHub release assets ($TAG)"
+      elif [ -n "${RELEASE_TAG:-}" ]; then
+        export TAG="$RELEASE_TAG"
+        export WAIT_ASSETS_SEC="${WAIT_ASSETS_SEC:-600}"
+        export WAIT_ASSETS_INTERVAL="${WAIT_ASSETS_INTERVAL:-60}"
+      else
+        # Schedule / SYNC_RELEASES: newest release; short wait if assets mid-upload.
+        export WAIT_ASSETS_SEC="${WAIT_ASSETS_SEC:-180}"
+        export WAIT_ASSETS_INTERVAL="${WAIT_ASSETS_INTERVAL:-30}"
+      fi
+
+      # Ensure we commit onto main even when this job runs from a tag pipeline.
+      git fetch origin "$TARGET_BRANCH"
+      git checkout -B "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
+
       bash scripts/sync-website-releases-from-github.sh
       if git diff --quiet -- website/releases.json \
         && ! git status --porcelain -- website/releases.json | grep -q .; then
@@ -281,22 +308,20 @@ sync-releases-from-github:
       git config user.name "void-browser-ci"
       git add website/releases.json
       git commit -m "chore(website): sync releases.json for ${TAG}"
-      git push "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}:${CI_SERVER_PORT:-80}/${CI_PROJECT_PATH}.git" "HEAD:${CI_COMMIT_REF_NAME}" \
-        || git push origin "HEAD:${CI_COMMIT_REF_NAME}"
-      echo "Committed and pushed website/releases.json for $TAG"
+      git push "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}:${CI_SERVER_PORT:-80}/${CI_PROJECT_PATH}.git" "HEAD:${TARGET_BRANCH}" \
+        || git push origin "HEAD:${TARGET_BRANCH}"
+      echo "Committed and pushed website/releases.json for $TAG → $TARGET_BRANCH"
   rules:
     - if: $RPA_AFTER_RELEASE == "1"
       when: never
     - if: $CI_PIPELINE_SOURCE == "schedule"
-    - if: $CI_PIPELINE_SOURCE == "pipeline" && $SYNC_RELEASES == "1"
-    - if: $CI_COMMIT_BRANCH == "main"
-      when: manual
-      allow_failure: true
+    - if: $SYNC_RELEASES == "1"
+    - if: $CI_COMMIT_TAG =~ /^v/
   allow_failure: true
 
 # ── DEPLOY WEBSITE ───────────────────────────────
-# Auto when website/** changes on main. Manual Play otherwise (redeploy).
-# No needs:[] — respects stage order after lint/security-app/sync.
+# Created only when website/** changes on main, or DEPLOY_SITE=1 (Run pipeline).
+# No always-on manual Play stub. No needs:[] — respects stage order.
 
 deploy-site:
   stage: deploy
@@ -339,12 +364,10 @@ deploy-site:
   rules:
     - if: $RPA_AFTER_RELEASE == "1"
       when: never
+    - if: $DEPLOY_SITE == "1" && $CI_COMMIT_BRANCH == "main"
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
         - website/**/*
-    - if: $CI_COMMIT_BRANCH == "main"
-      when: manual
-      allow_failure: true
 
 # ── SECURITY-SITE (marketing site website/) ──────
 # Defensive static analysis of website/ + Dockerfile headers.
@@ -373,10 +396,10 @@ site-security:
 #
 # MUST run after deploy-site when deploy is automatic (website/**).
 # Do NOT use needs:[] — that started e2e at pipeline start and raced deploy.
-# Do NOT use needs:[deploy-site] — deploy-site is always created on main (auto
-# or manual Play); a hard needs would block e2e until someone clicks Play on
-# non-website pushes. Stage order is correct: auto deploy blocks later stages;
-# manual deploy has allow_failure so security-site/e2e proceed against live.
+# Do NOT use needs:[deploy-site] — deploy-site is omitted on non-website pushes;
+# a hard needs would skip or block e2e incorrectly. Stage order is enough:
+# when deploy-site is created (website/**), it runs before e2e; otherwise e2e
+# probes the already-live :5080 origin.
 
 site-e2e:
   stage: e2e
@@ -437,7 +460,8 @@ site-e2e:
 # Job writes website/scan-results.json — never calls VT from the browser.
 # Packages: prefers VT_RELEASE_TAG/RELEASE_TAG, else newest GitHub Release with
 # assets (tags without a published Release no longer 404-fail the job).
-# After deploy/e2e so Play scans the currently live site + release assets.
+# Created only on v* tags, releases.json changes, or VIRUS_SCAN=1 — not every
+# main push (keeps VT Manual without Play clutter on noise commits).
 
 virus-scan:
   stage: scan
@@ -470,17 +494,22 @@ virus-scan:
   rules:
     - if: $RPA_AFTER_RELEASE == "1"
       when: never
-    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $VIRUS_SCAN == "1"
       when: manual
       allow_failure: true
-    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_TAG =~ /^v/
+      when: manual
+      allow_failure: true
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - website/releases.json
       when: manual
       allow_failure: true
 
 # ── RPA on rpa-win (Unraid LAN → WinRM) ──────────
 # Primary post-release GUI gate. GitHub Actions windows-latest is secondary.
-# Triggered automatically when GitHub release job commits releases.json and
-# POSTs a pipeline with RPA_AFTER_RELEASE=1 (see sync-website-releases-to-gitlab.sh).
+# Auto when website/releases.json changes (GitLab sync commit) or RPA_AFTER_RELEASE=1.
+# Optional: Run pipeline with RUN_RPA=1 or RUN_RPA_WINDOWS=1 (no always-on Play stub).
 #
 # GitLab CI/CD variables (masked, protected=false):
 #   VOID_RPA_WIN_PASS  — password for rpa-win (never commit)
@@ -556,24 +585,18 @@ rpa-windows:
         echo "Mirror skip (VOID_RPA_MIRROR_DIR not mounted or no artifacts)"
       fi
   rules:
-    # Automatic: pipeline created by GitHub release sync (RPA_AFTER_RELEASE=1)
     - if: $RPA_AFTER_RELEASE == "1"
-    # Automatic: website/releases.json commit from GitHub release sync
+    - if: $RUN_RPA == "1"
+    - if: $RUN_RPA_WINDOWS == "1"
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
         - website/releases.json
-    # Manual play from any main / tag pipeline (test without a new release)
-    - if: $CI_COMMIT_BRANCH == "main"
-      when: manual
-      allow_failure: true
-    - if: $CI_COMMIT_TAG =~ /^v/
-      when: manual
-      allow_failure: true
 
 # ── RPA suite on rpa-linux (Unraid LAN → SSH) ─────
 # Parallel to rpa-windows. Full-ish AppImage suite via xdotool
 # (AT-SPI does not expose Void chrome on Ubuntu 24.04 WebKitGTK/Tauri).
 # Guest needs Active GNOME session (GDM autologin — VNC viewer not required).
+# Auto on releases.json / RPA_AFTER_RELEASE=1; optional RUN_RPA=1 / RUN_RPA_LINUX=1.
 #
 # GitLab CI/CD variables (masked, protected=false):
 #   VOID_RPA_LINUX_PASS  — password for rpa-linux (never commit)
@@ -637,19 +660,12 @@ rpa-linux:
         echo "Mirror skip (VOID_RPA_MIRROR_DIR not mounted or no artifacts)"
       fi
   rules:
-    # Automatic: pipeline created by GitHub release sync (RPA_AFTER_RELEASE=1)
     - if: $RPA_AFTER_RELEASE == "1"
-    # Automatic: website/releases.json commit from GitHub release sync
+    - if: $RUN_RPA == "1"
+    - if: $RUN_RPA_LINUX == "1"
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
         - website/releases.json
-    # Manual play from any main / tag pipeline (test without a new release)
-    - if: $CI_COMMIT_BRANCH == "main"
-      when: manual
-      allow_failure: true
-    - if: $CI_COMMIT_TAG =~ /^v/
-      when: manual
-      allow_failure: true
 
 # Keep RPA VM git trees fresh on every main push (harness + docs).
 # Stage `sync` is before `rpa`. needs:[] starts ASAP (do not wait for lint).

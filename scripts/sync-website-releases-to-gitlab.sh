@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# Ops-only helper: commit website/releases.json to GitLab via API.
+# NOT used by GitHub Actions (GHA cannot reach LAN GitLab at 10.0.0.10).
+# Production sync is GitLab CI job sync-releases-from-github — see
+# docs/RELEASE_PIPELINE.md.
+#
 # After a GitHub Release, commit website/releases.json to GitLab main so
 # deploy-site picks it up (GitLab-first source of truth), then trigger the
 # post-release RPA pipeline on GitLab (Unraid → WinRM → rpa-win).

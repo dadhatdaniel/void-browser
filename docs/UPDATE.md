@@ -42,16 +42,17 @@ spaces → `.`); `scripts/generate-updater-manifest.sh` sanitizes that.
 
 ### Website `releases.json`
 
-Previously updated by hand before `deploy-site`. Now:
+Previously updated by hand before `deploy-site`. Now **GitLab is the sole sync**
+(GitHub-hosted runners cannot reach LAN GitLab at `10.0.0.10`):
 
-1. **Primary:** GitHub `release` job generates `artifacts/releases.json` and, when
-   Environment secret `GITLAB_TOKEN` is set, commits `website/releases.json` to
-   GitLab `main` (`scripts/sync-website-releases-to-gitlab.sh`) so deploy-site runs.
-   GitHub-hosted runners **cannot** reach private LAN hosts (`10.0.0.10`); the sync
-   step soft-fails in that case and does **not** fail the Build & Release workflow.
-2. **Fallback:** GitLab job `sync-releases-from-github` (schedule / manual /
-   `SYNC_RELEASES=1` pipeline) polls GitHub and commits the same file. Use this
-   when Actions cannot reach GitLab (normal for LAN-only GitLab).
+1. **Primary:** GitLab job `sync-releases-from-github` (schedule, after `v*` tags,
+   or `SYNC_RELEASES=1`) polls the GitHub Releases API from the Unraid runner and
+   commits `website/releases.json` to `main` when it changes. That push auto-runs
+   `deploy-site` + RPA via `changes:` rules. See [RELEASE_PIPELINE.md](./RELEASE_PIPELINE.md).
+2. **GHA:** Build & Release still generates `artifacts/releases.json` for local
+   inspection during the release job, but does **not** commit to GitLab (no-op step).
+
+`scripts/sync-website-releases-to-gitlab.sh` is ops-only (not called from GHA).
 
 ## Required GitHub secrets (user action)
 
@@ -61,10 +62,10 @@ Prefer **Environment secrets** on environment name **`release`** (Settings → E
 |--------|----------|---------|
 | `TAURI_SIGNING_PRIVATE_KEY` | **Yes for auto-updates** | Full contents of the minisign/ed25519 private key (paste key body; path is not used in CI) |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Optional | Only if the private key was generated with a password |
-| `GITLAB_TOKEN` | Recommended | PAT with `api` + `write_repository` so the release job can commit `website/releases.json` to GitLab. **Note:** GitHub-hosted runners cannot reach LAN-only GitLab (`10.0.0.10`); sync soft-fails and falls back to GitLab `sync-releases-from-github`. |
-| `GITLAB_HOST` | Optional | Default `http://10.0.0.10:8929` (unreachable from GitHub runners without a tunnel) |
-| `GITLAB_PROJECT_ID` | Optional | Default `lightfootcloud%2Fvoid-browser` |
 | `GH_WORKFLOW_TOKEN` | **Required for GHA RPA after release** | Classic PAT (`repo` + `workflow`). Releases created with the default `GITHUB_TOKEN` do **not** fire `on.release` for sibling workflows — Build & Release dispatches **RPA Windows** with this PAT instead. |
+
+`GITLAB_TOKEN` / `GITLAB_HOST` / `GITLAB_PROJECT_ID` are unused by GHA now.
+Website `releases.json` sync is GitLab-only (`sync-releases-from-github`).
 
 Also configure on Environment **`release`**:
 

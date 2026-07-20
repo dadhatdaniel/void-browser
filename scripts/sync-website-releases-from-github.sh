@@ -1,23 +1,30 @@
 #!/usr/bin/env bash
 # Poll GitHub for the newest published release and rewrite website/releases.json.
-# Used by GitLab CI (schedule / manual / API trigger) as a durable fallback when
-# the GitHub release job cannot commit back to GitLab.
+# GitLab CI owns this path (Unraid runner can reach api.github.com; GHA cannot
+# reach LAN GitLab). Used on schedule, after v* tags, and API SYNC_RELEASES=1.
 #
 # Optional env:
-#   REPO          — dadhatdaniel/void-browser
-#   GITHUB_TOKEN  — raises rate limits
-#   OUT           — website/releases.json
-#   TAG           — pin a specific tag (default: newest non-draft release)
+#   REPO                 — dadhatdaniel/void-browser
+#   GITHUB_TOKEN         — raises rate limits (also accepts GH_WORKFLOW_TOKEN)
+#   OUT                  — website/releases.json
+#   TAG                  — pin a specific tag (default: newest non-draft release)
+#   WAIT_ASSETS_SEC      — poll until installer assets exist (0 = no wait)
+#   WAIT_ASSETS_INTERVAL — seconds between polls (default 90)
 
 set -euo pipefail
 
 REPO="${REPO:-dadhatdaniel/void-browser}"
 OUT="${OUT:-website/releases.json}"
 API="https://api.github.com/repos/${REPO}"
+WAIT_ASSETS_SEC="${WAIT_ASSETS_SEC:-0}"
+WAIT_ASSETS_INTERVAL="${WAIT_ASSETS_INTERVAL:-90}"
+
+# Prefer dedicated workflow token when present (GitLab CI often sets both).
+TOKEN="${GITHUB_TOKEN:-${GH_WORKFLOW_TOKEN:-}}"
 
 auth_hdr=()
-if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-  auth_hdr=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+if [[ -n "$TOKEN" ]]; then
+  auth_hdr=(-H "Authorization: Bearer $TOKEN")
 fi
 
 if ! command -v jq >/dev/null 2>&1; then
@@ -25,41 +32,79 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ -n "${TAG:-}" ]]; then
-  echo "[sync] Using pinned TAG=$TAG"
-  code=$(curl -sS -o /tmp/gh-rel.json -w '%{http_code}' \
-    -H "Accept: application/vnd.github+json" \
-    -H "X-GitHub-Api-Version: 2022-11-28" \
-    "${auth_hdr[@]}" \
-    "$API/releases/tags/$TAG")
-else
-  echo "[sync] Fetching newest published release (includes prereleases) ..."
-  code=$(curl -sS -o /tmp/gh-rels.json -w '%{http_code}' \
-    -H "Accept: application/vnd.github+json" \
-    -H "X-GitHub-Api-Version: 2022-11-28" \
-    "${auth_hdr[@]}" \
-    "$API/releases?per_page=10")
+fetch_release() {
+  if [[ -n "${TAG:-}" ]]; then
+    echo "[sync] Fetching release TAG=$TAG ..."
+    code=$(curl -sS -o /tmp/gh-rel.json -w '%{http_code}' \
+      -H "Accept: application/vnd.github+json" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      "${auth_hdr[@]}" \
+      "$API/releases/tags/$TAG" || echo "000")
+  else
+    echo "[sync] Fetching newest published release (includes prereleases) ..."
+    code=$(curl -sS -o /tmp/gh-rels.json -w '%{http_code}' \
+      -H "Accept: application/vnd.github+json" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      "${auth_hdr[@]}" \
+      "$API/releases?per_page=10" || echo "000")
+    if [[ "$code" != "200" ]]; then
+      echo "[sync] GitHub list releases HTTP $code" >&2
+      cat /tmp/gh-rels.json >&2 || true
+      return 1
+    fi
+    jq '[.[] | select(.draft==false)][0]' /tmp/gh-rels.json > /tmp/gh-rel.json
+    TAG="$(jq -r '.tag_name // empty' /tmp/gh-rel.json)"
+    code=200
+  fi
+
   if [[ "$code" != "200" ]]; then
-    echo "[sync] GitHub list releases HTTP $code" >&2
-    cat /tmp/gh-rels.json >&2 || true
+    echo "[sync] GitHub release HTTP $code" >&2
+    cat /tmp/gh-rel.json >&2 || true
+    return 1
+  fi
+  if [[ ! -s /tmp/gh-rel.json ]] || [[ "$(jq -r '.tag_name // empty' /tmp/gh-rel.json)" = "" ]]; then
+    echo "[sync] No release found" >&2
+    return 1
+  fi
+  TAG="$(jq -r '.tag_name' /tmp/gh-rel.json)"
+  return 0
+}
+
+installer_asset_count() {
+  jq '[.assets[] | select(.name | test("\\.(deb|AppImage|dmg|msi)$|setup\\.exe$|_x64-setup\\.exe$"))] | length' \
+    /tmp/gh-rel.json
+}
+
+# Initial fetch + optional wait for GHA to publish installers after a tag.
+elapsed=0
+until fetch_release; do
+  if [[ "$WAIT_ASSETS_SEC" -le 0 ]] || [[ "$elapsed" -ge "$WAIT_ASSETS_SEC" ]]; then
+    echo "[sync] Release not available yet (waited ${elapsed}s)" >&2
     exit 1
   fi
-  jq '[.[] | select(.draft==false)][0]' /tmp/gh-rels.json > /tmp/gh-rel.json
-  TAG="$(jq -r '.tag_name' /tmp/gh-rel.json)"
+  echo "[sync] Release not visible yet — sleep ${WAIT_ASSETS_INTERVAL}s (${elapsed}/${WAIT_ASSETS_SEC}s)"
+  sleep "$WAIT_ASSETS_INTERVAL"
+  elapsed=$((elapsed + WAIT_ASSETS_INTERVAL))
+done
+
+if [[ "$WAIT_ASSETS_SEC" -gt 0 ]]; then
+  while true; do
+    count="$(installer_asset_count)"
+    if [[ "$count" -gt 0 ]]; then
+      echo "[sync] Release $TAG has $count installer asset(s)"
+      break
+    fi
+    if [[ "$elapsed" -ge "$WAIT_ASSETS_SEC" ]]; then
+      echo "[sync] ERROR: release $TAG still has no installer assets after ${elapsed}s" >&2
+      exit 1
+    fi
+    echo "[sync] Waiting for installer assets on $TAG — sleep ${WAIT_ASSETS_INTERVAL}s (${elapsed}/${WAIT_ASSETS_SEC}s)"
+    sleep "$WAIT_ASSETS_INTERVAL"
+    elapsed=$((elapsed + WAIT_ASSETS_INTERVAL))
+    fetch_release || true
+  done
 fi
 
-if [[ "$code" != "200" && ! -s /tmp/gh-rel.json ]]; then
-  echo "[sync] GitHub release HTTP $code" >&2
-  exit 1
-fi
-
-# If we fetched by tag above and got non-200:
-if [[ ! -s /tmp/gh-rel.json ]] || [[ "$(jq -r '.tag_name // empty' /tmp/gh-rel.json)" = "" ]]; then
-  echo "[sync] No release found" >&2
-  exit 1
-fi
-
-TAG="$(jq -r '.tag_name' /tmp/gh-rel.json)"
 VERSION="${TAG#v}"
 PUBLISHED="$(jq -r '.published_at // .created_at' /tmp/gh-rel.json | cut -c1-10)"
 
