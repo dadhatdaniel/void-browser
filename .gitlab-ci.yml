@@ -256,7 +256,7 @@ site-e2e:
 #   VOID_RPA_WIN_PASS  — password for rpa-win (never commit)
 #   VOID_RPA_WIN_USER  — default rpa-win
 #   VOID_RPA_WIN_HOST  — default 10.0.0.28
-# Guest must have an Active console session (VNC login once after reboot).
+# Guest needs Active console (rpa-win Autologon after reboot — VNC viewer not required).
 
 rpa-windows:
   stage: e2e

@@ -41,11 +41,12 @@ GitLab Unraid runners process about one job at a time. API pipelines with `RPA_A
 
 | Item | Why |
 |------|-----|
-| Interactive desktop on rpa-win | Log in once via VNC after reboot (`http://10.0.0.10:5702/`) — UIA needs Active session |
 | `VOID_RPA_WIN_PASS` | Set in GitLab CI (short passwords cannot be masked — rotate to 8+ chars) |
-| VirusTotal scan | Still manual play (`virus-scan`) |
+| VirusTotal scan | Still manual play (`virus-scan`) — do **not** automate |
 | Runner queue | RPA waits behind lint/clippy when the shared runner is busy |
 | Local WinRM TrustedHosts | One-time for `rpa-remote-run.ps1` on DANIELRIG |
+
+**Not manual anymore:** interactive desktop on rpa-win. Winlogon Autologon for `rpa-win` lands an Active console after reboot; QEMU VNC may listen but a human viewer is not required. See [TEST_VMS.md](./TEST_VMS.md).
 
 ## Manual test (no new tag)
 

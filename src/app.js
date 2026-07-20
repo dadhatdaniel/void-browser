@@ -51,16 +51,53 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+let systemThemeMql = null;
+let systemThemeHandler = null;
+
+function systemThemeCssName() {
+  try {
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  } catch (_) {
+    return 'dark';
+  }
+}
+
+function isSystemTheme(theme) {
+  const name = typeof theme === 'string' ? theme : enumName(theme, '');
+  return String(name).toLowerCase() === 'system';
+}
+
 function themeCssName(theme) {
   if (!theme || typeof theme === 'string') {
-    const t = String(theme || 'Dark');
-    return t.toLowerCase() === 'midnight' ? 'midnight'
-      : t.toLowerCase() === 'light' ? 'light' : 'dark';
+    const t = String(theme || 'Dark').toLowerCase();
+    if (t === 'system') return systemThemeCssName();
+    if (t === 'midnight') return 'midnight';
+    if (t === 'light') return 'light';
+    return 'dark';
   }
   if (theme.Custom) return 'dark';
+  if ('System' in theme || theme === 'System') return systemThemeCssName();
   if ('Midnight' in theme || theme === 'Midnight') return 'midnight';
   if ('Light' in theme || theme === 'Light') return 'light';
   return 'dark';
+}
+
+function bindSystemThemeListener(enabled) {
+  if (systemThemeMql && systemThemeHandler) {
+    try {
+      systemThemeMql.removeEventListener('change', systemThemeHandler);
+    } catch (_) { /* older engines */ }
+    systemThemeMql = null;
+    systemThemeHandler = null;
+  }
+  if (!enabled) return;
+  try {
+    systemThemeMql = window.matchMedia('(prefers-color-scheme: light)');
+    systemThemeHandler = () => {
+      document.documentElement.setAttribute('data-theme', systemThemeCssName());
+    };
+    systemThemeMql.addEventListener('change', systemThemeHandler);
+  } catch (_) { /* no matchMedia */ }
 }
 
 function enumName(value, fallback) {
@@ -77,6 +114,7 @@ function applyAppearance(config) {
   if (!config) return;
   const theme = enumName(config.theme, 'Dark');
   document.documentElement.setAttribute('data-theme', themeCssName(theme));
+  bindSystemThemeListener(isSystemTheme(theme));
   document.body.classList.toggle('compact', !!config.compact_mode);
   if (config.font_size) {
     document.body.style.fontSize = `${config.font_size}px`;
@@ -599,7 +637,9 @@ document.getElementById('check-updates-btn')?.addEventListener('click', async ()
 });
 
 document.getElementById('theme-select')?.addEventListener('change', (e) => {
-  document.documentElement.setAttribute('data-theme', themeCssName(e.target.value));
+  const value = e.target.value;
+  document.documentElement.setAttribute('data-theme', themeCssName(value));
+  bindSystemThemeListener(isSystemTheme(value));
 });
 document.getElementById('font-size')?.addEventListener('input', (e) => {
   const v = e.target.value;

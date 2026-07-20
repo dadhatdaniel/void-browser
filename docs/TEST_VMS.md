@@ -9,7 +9,8 @@ Inventory date: **2026-07-20** (host `lightfootserver` / `10.0.0.10`).
 | **2026-07-18** | Docs only — no Void VMs created. |
 | **2026-07-20 (earlier)** | Created empty-disk installer VMs (`void-test-linux` + a Win11 ISO `void-rpa-windows`). |
 | **2026-07-20 (this update)** | **Cloned** configured Windows guest `fresh-configured` → **`void-rpa-windows`**. GPU passthrough stripped; VNC added. Installer Windows VM renamed to `void-rpa-windows-scratch` (shut off). `void-test-linux` kept. |
-| **2026-07-20 (later)** | Disabled **julia** autologin on `void-rpa-windows` (see Guest access). VM now stops at login screen. |
+| **2026-07-20 (later)** | Disabled **julia** autologin on `void-rpa-windows` (see Guest access). VM stopped at login screen. |
+| **2026-07-20 (Autologon)** | Enabled **rpa-win** Winlogon Autologon + no idle lock. After reboot, console Session 1 is Active **without** opening VNC. |
 
 **Why clone `fresh-configured` instead of Win11 OOBE?**  
 User already has a configured Windows disk. Cloning avoids a full reinstall/license OOBE. Original stays shut off with GPU passthrough intact for personal use.
@@ -44,18 +45,36 @@ Passwords live only on the Unraid host: `/root/void-rpa-vm-credentials.txt` (mod
 | **`void-rpa-windows`** | `JULIARIG` (plan: `rpa-win-vm`) | **`10.0.0.28`** | **`rpa-win`** | WinRM `5985`, RDP `3389`. VNC `http://10.0.0.10:5702/`. |
 | **`void-test-linux`** | `rpa-linux-vm` | **`10.0.1.114`** | **`rpa-linux`** | Ping OK; TCP/22 refused as of 2026-07-20 (OpenSSH not listening yet). VNC `http://10.0.0.10:5701/`. |
 
-### Windows: julia autologin removed (2026-07-20)
+### Windows: rpa-win Autologon (required for headless RPA)
 
-**Found / removed:**
+**Why VNC used to be required:** after julia Autologon was removed (2026-07-20), reboot left the VM on the login screen (`query user` → no session). UI Automation / scheduled-task RPA needs an **Active console** (Session 1 + `explorer`). Opening noVNC and signing in manually was a workaround — **not** because QEMU VNC must stay connected. VNC/QXL always listens (`0.0.0.0:5902` / websocket `5702`); a human viewer is optional diagnostics only.
 
-1. **Winlogon AutoAdminLogon** — `AutoAdminLogon=1`, `DefaultUserName=julia`, `DefaultDomainName=JULIARIG`, `ForceAutoLogon=1` → set autologon off and cleared default user/domain/password values.
-2. **Automatic Restart Sign-On (ARSO)** — after reboot while julia was logged in, Windows signed her back in even with AutoAdminLogon off → set `DisableAutomaticRestartSignOn=1`.
-3. **Passwordless device mode** — `DevicePasswordLessBuildVersion=2` → set to `0` (classic password prompt / netplwiz behavior).
-4. **Blank-password julia account** — `Password required: No` was the remaining cause of console auto-sign-in → set a password, `/passwordreq:yes`, and **`net user julia /active:no`** (account disabled). Temp julia password note on host only: `/root/void-rpa-windows-julia-temp-password.txt`.
+**Configured on the guest (password stays on the VM / Unraid secrets — not in git):**
 
-**Verified:** after hard reset, `query user` → `No User exists for *` (login screen, no interactive session).
+| Setting | Value |
+|---------|--------|
+| Winlogon `AutoAdminLogon` / `ForceAutoLogon` | `1` |
+| `DefaultUserName` | `rpa-win` |
+| `DefaultDomainName` | `.` (local account; LogonUI uses `.\rpa-win`) |
+| `DefaultPassword` | set via WinRM apply script from `VOID_RPA_WIN_PASS` |
+| ARSO `DisableAutomaticRestartSignOn` | `0` (backup after crash reboot) |
+| Screensaver / idle lock / NoLockScreen | disabled for this test account |
+| `julia` account | remains **disabled** |
 
-**How to log in now:** open VNC → sign in as **`rpa-win`**. Then delete or re-enable `julia` yourself if desired (`net user julia /active:yes` only if you still need that profile).
+**Apply / re-apply (from DANIELRIG or CI host with WinRM):**
+
+```powershell
+$env:VOID_RPA_WIN_PASS = '<password>'   # never commit
+python scripts/ci/apply-rpa-autologon.py
+# optional verify after reboot (does not open VNC):
+python scripts/ci/reboot-verify-rpa-session.py
+```
+
+On-guest script (same registry changes): `scripts/ci/configure-rpa-autologon.ps1`.
+
+**Verified (2026-07-20):** reboot via WinRM → wait for boot → **do not** open VNC → `query user` shows `rpa-win` console **Active** Session 1 → RPA smoke (`app_launch`,`smoke_navigate`) **PASS**.
+
+**Julia history (still relevant):** blank-password julia + old Autologon/`ForceAutoLogon` were removed; account stays `net user julia /active:no`. Temp note on host only: `/root/void-rpa-windows-julia-temp-password.txt`.
 
 ## VMs (`virsh list --all`)
 
@@ -94,15 +113,14 @@ virsh list --all
 virsh vncdisplay void-rpa-windows   # e.g. :2 → 5902 / 5702
 ```
 
-**Access path for RPA setup**
+**Access path for RPA**
 
-1. Open Unraid: `http://10.0.0.10` → **VMs**.
-2. Click **`void-rpa-windows`** → **VNC** (or open `http://10.0.0.10:5702/` directly).
-3. At the **login screen**, sign in as **`rpa-win`** (julia autologin disabled; julia account is inactive).
+1. After reboot, **rpa-win Autologon** should land an unlocked desktop automatically (no VNC step).
+2. Trigger RPA via WinRM (`scripts/rpa-remote-run.ps1` or GitLab `rpa-windows`) — see [RPA_TESTING.md](./RPA_TESTING.md).
+3. **Optional diagnose only:** Unraid VMs → **void-rpa-windows** → VNC, or `http://10.0.0.10:5702/`, or `virsh screenshot void-rpa-windows` on the host.
 4. If Windows complains about hardware change / reactivation, use your license/account (clone may trigger reactivation).
-5. Install/run Void Browser + `.\scripts\run-rpa-windows.ps1` on the guest.
 
-No physical GPU monitor is required for the clone — VNC only. Leave `fresh-configured` off unless you intentionally want the GTX 1080 Ti passthrough desktop.
+No physical GPU monitor is required — QEMU VNC/QXL is enough, and a human viewer is not required once Autologon works. Leave `fresh-configured` off unless you intentionally want the GTX 1080 Ti passthrough desktop.
 
 ### Clone notes (what we changed on the clone only)
 
@@ -142,7 +160,7 @@ Cloning a licensed disk can still require reactivation after hardware change (no
 
 ## Recommendation
 
-1. **RPA now** → this PC, or `void-rpa-windows` via VNC once you can log in.
+1. **RPA now** → this PC, or `void-rpa-windows` via WinRM (Autologon; VNC optional for diagnose).
 2. **Linux unit/build** → GHA `ubuntu-latest`, Docker, or finish `void-test-linux`.
 3. **Do not** start `fresh-configured` for agent RPA (no VNC; steals GPU).
 

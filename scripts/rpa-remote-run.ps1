@@ -174,8 +174,12 @@ try {
 
     $q = (query user 2>&1 | Out-String)
     if ($q -notmatch "Active") {
-      Write-Warning "No Active console session detected. Log in as rpa-win via VNC first (http://10.0.0.10:5702/)."
       Write-Host $q
+      throw @"
+No Active console session. Autologon should unlock rpa-win after reboot (no VNC required).
+Re-apply: VOID_RPA_WIN_PASS=... python scripts/ci/apply-rpa-autologon.py
+Diagnose only: VNC http://10.0.0.10:5702/ or virsh screenshot on Unraid.
+"@
     }
 
     Start-ScheduledTask -TaskName $taskName
@@ -200,7 +204,7 @@ try {
   }
 
   if (-not $doneInfo) {
-    throw "Timed out waiting for RPA after ${TimeoutSec}s. Check VNC console and C:\Users\rpa-win\void-rpa-status\"
+    throw "Timed out waiting for RPA after ${TimeoutSec}s. Check Autologon/session and C:\Users\rpa-win\void-rpa-status\"
   }
 
   $doneObj = $doneInfo | ConvertFrom-Json

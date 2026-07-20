@@ -274,8 +274,10 @@ $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoi
 Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
 $q = (query user 2>&1 | Out-String)
 if ($q -notmatch 'Active') {{
-  Write-Output 'WARN: No Active console session — log in as rpa-win via VNC (http://10.0.0.10:5702/)'
+  Write-Output 'ERROR: No Active console session. Autologon should land rpa-win on an unlocked desktop after reboot.'
+  Write-Output 'Check Winlogon AutoAdminLogon on the VM (scripts/ci/apply-rpa-autologon.py) or VNC http://10.0.0.10:5702/ for diagnosis only.'
   Write-Output $q
+  throw 'RPA requires Active console session (Session 1). Autologon missing or Windows Update still running.'
 }}
 Start-ScheduledTask -TaskName $taskName
 Write-Output "Started $taskName wrapper=$wrapper"

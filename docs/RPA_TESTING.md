@@ -25,7 +25,7 @@ Linux/Unraid Docker **cannot** run this harness (no WebView2 GUI). See
 4. Same sync POSTs GitLab pipeline `RPA_AFTER_RELEASE=1` → **rpa-windows** WinRM to rpa-win (full suite incl. `auto_update`).
 5. Secondary: GitHub `release: published` starts hosted **RPA Windows**.
 
-Requires GitLab CI variable **`VOID_RPA_WIN_PASS`** (masked) and an Active console session on the VM.
+Requires GitLab CI variable **`VOID_RPA_WIN_PASS`** (masked). The VM uses **rpa-win Autologon** so an Active console session exists after reboot without opening VNC (see [TEST_VMS.md](./TEST_VMS.md)).
 
 ## Quick start (this Windows PC)
 
@@ -69,7 +69,7 @@ $env:VOID_RPA_WIN_USER = 'rpa-win'
 $env:VOID_RPA_WIN_PASS = '<password>'
 ```
 
-Ensure the guest has an **Active console session** (log in as `rpa-win` via VNC if needed). UI Automation requires an interactive desktop.
+UI Automation needs an interactive desktop. **rpa-win Autologon** provides that after reboot; you do **not** need to open/leave VNC. If the job fails with “No Active console session”, re-apply Autologon (`scripts/ci/apply-rpa-autologon.py`) or check that Windows Update is not still mid-install.
 
 ### Trigger from DANIELRIG
 

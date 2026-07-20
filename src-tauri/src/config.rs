@@ -94,6 +94,7 @@ pub enum Theme {
     Dark,
     Light,
     Midnight, // OLED black
+    System,   // follow OS prefers-color-scheme
     Custom(String),
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "void-browser"
-version = "0.1.0-alpha.16"
+version = "0.1.0-alpha.17"
 description = "Void — A minimal, secure, privacy-first browser"
 authors = ["Daniel Lightfoot"]
 license = "GPL-3.0"
