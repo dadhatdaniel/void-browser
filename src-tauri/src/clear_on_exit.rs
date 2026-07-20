@@ -126,10 +126,8 @@ fn clear_webview_data(webview: &tauri::Webview, flags: &ClearOnExit) -> Result<(
 #[cfg(windows)]
 fn clear_webview2(webview: &tauri::Webview, flags: &ClearOnExit) -> Result<(), String> {
     use std::sync::mpsc;
-    use webview2_com::Microsoft::Web::WebView2::Win32::{
-        ICoreWebView2Profile2, ICoreWebView2_13,
-    };
     use webview2_com::ClearBrowsingDataCompletedHandler;
+    use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2Profile2, ICoreWebView2_13};
     use windows::core::Interface;
 
     let kinds = browsing_data_kinds(flags);
@@ -194,7 +192,9 @@ fn clear_webview2(webview: &tauri::Webview, flags: &ClearOnExit) -> Result<(), S
 }
 
 #[cfg(windows)]
-fn browsing_data_kinds(flags: &ClearOnExit) -> webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_BROWSING_DATA_KINDS {
+fn browsing_data_kinds(
+    flags: &ClearOnExit,
+) -> webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_BROWSING_DATA_KINDS {
     use webview2_com::Microsoft::Web::WebView2::Win32::{
         COREWEBVIEW2_BROWSING_DATA_KINDS, COREWEBVIEW2_BROWSING_DATA_KINDS_BROWSING_HISTORY,
         COREWEBVIEW2_BROWSING_DATA_KINDS_CACHE_STORAGE, COREWEBVIEW2_BROWSING_DATA_KINDS_COOKIES,
@@ -283,9 +283,14 @@ fn clear_webkit(webview: &tauri::Webview, flags: &ClearOnExit) -> Result<(), Str
             let wk = platform.inner();
             if let Some(context) = wk.context() {
                 if let Some(manager) = context.website_data_manager() {
-                    manager.clear(types, TimeSpan::from_seconds(0), None::<&Cancellable>, move |_| {
-                        let _ = tx.send(());
-                    });
+                    manager.clear(
+                        types,
+                        TimeSpan::from_seconds(0),
+                        None::<&Cancellable>,
+                        move |_| {
+                            let _ = tx.send(());
+                        },
+                    );
                     return;
                 }
             }
@@ -326,8 +331,7 @@ mod tests {
     #[test]
     fn kinds_map_flags() {
         use webview2_com::Microsoft::Web::WebView2::Win32::{
-            COREWEBVIEW2_BROWSING_DATA_KINDS_COOKIES,
-            COREWEBVIEW2_BROWSING_DATA_KINDS_DISK_CACHE,
+            COREWEBVIEW2_BROWSING_DATA_KINDS_COOKIES, COREWEBVIEW2_BROWSING_DATA_KINDS_DISK_CACHE,
         };
         let flags = ClearOnExit {
             cookies: true,
