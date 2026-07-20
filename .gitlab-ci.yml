@@ -5,26 +5,40 @@
 #         See: .github/workflows/build.yml
 #         Repo: https://github.com/dadhatdaniel/void-browser
 #
-# THIS PIPELINE HANDLES:
-#   1. LINT (every push) — code quality gates
-#   2. SECURITY (main + tags) — vulnerability + license audit
-#   3. DEPLOY-SITE (main, website/**) — website deployment with health checks
-#   4. RPA-WINDOWS (auto after GitHub Release) — WinRM → rpa-win @ 10.0.0.28
-#   5. SYNC-RPA-WIN-REPO (main) — git pull harness on the VM
+# STAGE ORDER (logical):
+#   lint → security → trigger → sync → deploy → e2e → scan → rpa → notify
 #
-# RELEASE FLOW (automatic):
-#   git tag v* && git push origin v*
-#   → trigger-github-build → GitHub Build & Release (signed updater + latest.json)
-#   → sync-website-releases-to-gitlab commits website/releases.json
-#   → deploy-site (website/** change) + RPA_AFTER_RELEASE pipeline → rpa-windows
+# AUTO vs MANUAL (who clicks Play):
+#   AUTO on main push:
+#     rustfmt, clippy, cargo-audit, license-check,
+#     site-e2e, sync-rpa-win-repo
+#     deploy-site          — only when website/** changed
+#     rpa-windows          — only when website/releases.json changed
+#   AUTO on v* tag:
+#     cargo-audit, license-check, trigger-github-build
+#   AUTO on schedule / API (SYNC_RELEASES=1):
+#     sync-releases-from-github
+#   AUTO on API (RPA_AFTER_RELEASE=1):
+#     rpa-windows only (all other jobs skipped)
+#   MANUAL (Play required):
+#     virus-scan           — main + tags (never auto)
+#     deploy-site          — main when website/** did NOT change
+#     rpa-windows          — main/tag when not an auto-release path
+#     sync-releases-from-github — main (fallback; primary sync is GHA→GitLab)
+#
+# CRITICAL: site-e2e must NOT use needs:[] — that raced ahead of deploy-site
+# and hit the live :5080 origin before the new site was deployed.
 # ═══════════════════════════════════════════════════
 
 stages:
   - lint
   - security
-  - scan
-  - deploy-site
+  - trigger
+  - sync
+  - deploy
   - e2e
+  - scan
+  - rpa
   - notify
 
 variables:
@@ -106,283 +120,6 @@ license-check:
     - if: $CI_COMMIT_BRANCH == "main"
     - if: $CI_COMMIT_TAG
 
-# ── VIRUSTOTAL (optional) ────────────────────────
-# Add GitLab CI/CD variable: VIRUSTOTAL_API_KEY (masked, protected optional)
-# Optional: GITHUB_TOKEN (read-only) for higher GitHub asset download limits
-# Job writes website/scan-results.json — never calls VT from the browser.
-# Packages: prefers VT_RELEASE_TAG/RELEASE_TAG, else newest GitHub Release with
-# assets (tags without a published Release no longer 404-fail the job).
-
-virus-scan:
-  stage: scan
-  image: python:3.12-alpine
-  timeout: 2h
-  needs: []
-  variables:
-    VT_WEBSITE_URL: "https://void.lightfoot.cloud"
-  script:
-    - |
-      set -e
-      # Hint only — script falls back if this tag has no GitHub Release/assets yet
-      export VT_RELEASE_TAG="${VT_RELEASE_TAG:-${RELEASE_TAG:-${CI_COMMIT_TAG:-}}}"
-      if [ -z "${VIRUSTOTAL_API_KEY:-}" ]; then
-        echo "VIRUSTOTAL_API_KEY not set — writing pending placeholder (no fake scores)."
-        python3 scripts/virustotal-scan.py --dry-run
-      else
-        echo "VirusTotal key present (value not printed). Scanning website + release assets..."
-        echo "Preferred release tag: ${VT_RELEASE_TAG:-"(auto)"}"
-        python3 scripts/virustotal-scan.py
-      fi
-    - test -f website/scan-results.json
-    - python3 -c "import json; d=json.load(open('website/scan-results.json')); print('status=', d.get('status'), 'tag=', d.get('release_tag'), 'artifacts=', len(d.get('artifacts') or []), 'site=', (d.get('website') or {}).get('positives'), '/', (d.get('website') or {}).get('total'))"
-  artifacts:
-    paths:
-      - website/scan-results.json
-    expire_in: 30 days
-    when: always
-    # Artifact upload failures after a green script must not mark the job failed
-  allow_failure: true
-  rules:
-    - if: $RPA_AFTER_RELEASE == "1"
-      when: never
-    - if: $CI_COMMIT_BRANCH == "main"
-      when: manual
-      allow_failure: true
-    - if: $CI_COMMIT_TAG
-      when: manual
-      allow_failure: true
-
-# ── DEPLOY WEBSITE ───────────────────────────────
-
-deploy-site:
-  stage: deploy-site
-  image: alpine:latest
-  needs: []
-  before_script:
-    - apk add --no-cache openssh-client curl
-    - mkdir -p ~/.ssh
-    - cp "$DEPLOY_SSH_KEY" ~/.ssh/id_ed25519
-    - chmod 600 ~/.ssh/id_ed25519
-    - ssh-keyscan -p 22 $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
-  script:
-    - echo "=== Deploying Void Browser Website ==="
-    - scp -o StrictHostKeyChecking=no website/index.html website/style.css website/Dockerfile website/robots.txt website/sitemap.xml website/ai.txt website/tdmrep.json website/favicon.ico website/favicon-32.png website/favicon-192.png website/favicon-512.png website/apple-touch-icon.png website/site.webmanifest website/manifest.json website/releases.json website/scan-results.json root@$DEPLOY_HOST:/mnt/user/appdata/lightfootcloud/websites/void-browser/
-    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "cd /mnt/user/appdata/lightfootcloud/websites/void-browser && docker build -t void-website . && docker stop void-website 2>/dev/null; docker rm void-website 2>/dev/null; docker run -d --name void-website --restart unless-stopped -p 5080:80 --network proxynet --memory=128m --security-opt no-new-privileges:true void-website"
-    - sleep 5
-    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -sf http://localhost:5080/ > /dev/null && echo 'Health check PASSED' || (echo 'Health check FAILED' && exit 1)"
-    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -sf http://localhost:5080/releases.json > /dev/null && echo 'releases.json OK' || (echo 'releases.json MISSING' && exit 1)"
-    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -sf http://localhost:5080/scan-results.json > /dev/null && echo 'scan-results.json OK' || (echo 'scan-results.json MISSING' && exit 1)"
-    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -sf -o /dev/null -w '%{http_code}' http://localhost:5080/manifest.json | grep -q 200 && echo 'manifest.json OK' || (echo 'manifest.json FAILED' && exit 1)"
-    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -sI http://localhost:5080/ | grep -E '^(X-|Referrer|Content-Security|Permissions)'"
-    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -s http://localhost:5080/ | grep -qi '<script[^>]*google-analytics' && echo 'TRACKING FOUND' && exit 1 || echo 'No tracking scripts - PASSED'"
-    - echo "=== Deployment verified ==="
-    - echo "Live at https://void.lightfoot.cloud"
-  rules:
-    - if: $RPA_AFTER_RELEASE == "1"
-      when: never
-    - if: $CI_COMMIT_BRANCH == "main"
-      changes:
-        - website/**/*
-    - if: $CI_COMMIT_BRANCH == "main"
-      when: manual
-      allow_failure: true
-  variables:
-    DEPLOY_HOST: "10.0.0.10"
-
-# ── SITE E2E SMOKE (every main push) ─────────────
-# Hits the live container on the deploy host (:5080). Cloudflare may challenge
-# https://void.lightfoot.cloud for bots — CI uses the origin port instead.
-
-site-e2e:
-  stage: e2e
-  image: alpine:latest
-  needs: []
-  before_script:
-    - apk add --no-cache curl jq
-  script:
-    - |
-      set -eu
-      BASE="${SITE_E2E_BASE:-http://10.0.0.10:5080}"
-      echo "=== Site E2E against $BASE ==="
-      for path in / /manifest.json /releases.json /scan-results.json /robots.txt /sitemap.xml /style.css /favicon.ico; do
-        code=$(curl -sS -o /tmp/e2e-body -w '%{http_code}' "$BASE$path" || echo "000")
-        echo "$code $path"
-        test "$code" = "200"
-      done
-      curl -sf "$BASE/releases.json" -o /tmp/releases.json
-      jq -e '.tag and .assets' /tmp/releases.json >/dev/null
-      jq -r '.assets | to_entries[] | .value.url' /tmp/releases.json > /tmp/download-urls.txt
-      while IFS= read -r url; do
-        [ -z "$url" ] && continue
-        code=$(curl -sS -I -L -o /dev/null -w '%{http_code}' --max-time 60 "$url" || echo "000")
-        echo "$code download $url"
-        echo "$code" | grep -Eq '^(200|302)$'
-      done < /tmp/download-urls.txt
-      curl -sf "$BASE/scan-results.json" -o /tmp/scan.json
-      jq -e '.status and (.website or .artifacts)' /tmp/scan.json >/dev/null
-      status=$(jq -r '.status' /tmp/scan.json)
-      echo "scan-results status=$status"
-      if [ "$status" = "pending" ]; then
-        echo "WARNING: scan-results still pending (VT key missing or scan not run)"
-      else
-        jq -e '(.website.total // 0) > 0 or ((.artifacts // []) | length) > 0' /tmp/scan.json >/dev/null
-        echo "VT scores present"
-      fi
-      curl -sf "$BASE/" -o /tmp/index.html
-      if grep -Eiq '<script[^>]*google-analytics|googletagmanager' /tmp/index.html; then
-        echo 'TRACKING FOUND'
-        exit 1
-      fi
-      echo 'No tracking scripts'
-      # Void background (canvas starfield) + download badges
-      curl -sf "$BASE/style.css" -o /tmp/style.css
-      grep -Eq 'void-bg|void-canvas|void-nebula' /tmp/index.html
-      grep -Eq 'void-bg|void-canvas' /tmp/style.css
-      echo 'void starfield OK'
-      grep -Eq 'download-badges|shields\.io' /tmp/index.html
-      echo 'download badges OK'
-      echo "=== Site E2E PASSED ==="
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main" && $RPA_AFTER_RELEASE != "1"
-  variables:
-    SITE_E2E_BASE: "http://10.0.0.10:5080"
-
-# ── RPA on rpa-win (Unraid LAN → WinRM) ──────────
-# Primary post-release GUI gate. GitHub Actions windows-latest is secondary.
-# Triggered automatically when GitHub release job commits releases.json and
-# POSTs a pipeline with RPA_AFTER_RELEASE=1 (see sync-website-releases-to-gitlab.sh).
-#
-# GitLab CI/CD variables (masked, protected=false):
-#   VOID_RPA_WIN_PASS  — password for rpa-win (never commit)
-#   VOID_RPA_WIN_USER  — default rpa-win
-#   VOID_RPA_WIN_HOST  — default 10.0.0.28
-# Guest needs Active console (rpa-win Autologon after reboot — VNC viewer not required).
-
-rpa-windows:
-  stage: e2e
-  image: python:3.12-slim
-  needs: []
-  timeout: 2h
-  allow_failure: true
-  resource_group: void-rpa-win
-  variables:
-    VOID_RPA_WIN_HOST: "10.0.0.28"
-    VOID_RPA_WIN_USER: "rpa-win"
-    VOID_RPA_MIRROR_DIR: "/mnt/user/appdata/void-rpa-artifacts"
-  before_script:
-    - pip install --no-cache-dir pywinrm requests
-  script:
-    - |
-      set -eu
-      echo "=== RPA Windows via WinRM → ${VOID_RPA_WIN_HOST} ==="
-      if [ -z "${VOID_RPA_WIN_PASS:-}" ]; then
-        echo "BLOCKER: set GitLab CI variable VOID_RPA_WIN_PASS (masked, protected=false)"
-        echo "  Never commit the password. Guest: rpa-win @ 10.0.0.28"
-        exit 1
-      fi
-      TAG="${RELEASE_TAG:-${CI_COMMIT_TAG:-}}"
-      echo "RELEASE_TAG=${TAG:-"(latest via releases.json)"}"
-      EXTRA=""
-      if [ -n "$TAG" ]; then
-        EXTRA="--release-tag $TAG --wait-github"
-      fi
-      python3 scripts/ci/rpa-winrm.py \
-        --sync-repo \
-        --download-install \
-        --timeout-sec "${RPA_TIMEOUT_SEC:-1800}" \
-        $EXTRA
-    - |
-      set -eu
-      latest=$(ls -1dt artifacts/rpa/*/ 2>/dev/null | head -n1 || true)
-      if [ -z "$latest" ]; then
-        echo "No artifacts/rpa/* pulled"
-        exit 1
-      fi
-      echo "Artifacts: $latest"
-      test -f "${latest}report.json"
-      python3 scripts/ci/check-rpa-report.py "${latest}report.json"
-  artifacts:
-    when: always
-    paths:
-      - artifacts/rpa/
-    expire_in: 30 days
-  rules:
-    # Automatic: pipeline created by GitHub release sync (RPA_AFTER_RELEASE=1)
-    - if: $RPA_AFTER_RELEASE == "1"
-    # Automatic: website/releases.json commit from GitHub release sync
-    - if: $CI_COMMIT_BRANCH == "main"
-      changes:
-        - website/releases.json
-    # Manual play from any main / tag pipeline (test without a new release)
-    - if: $CI_COMMIT_BRANCH == "main"
-      when: manual
-      allow_failure: true
-    - if: $CI_COMMIT_TAG =~ /^v/
-      when: manual
-      allow_failure: true
-
-# Keep rpa-win git tree fresh on every main push (harness + docs).
-sync-rpa-win-repo:
-  stage: notify
-  image: python:3.12-slim
-  needs: []
-  allow_failure: true
-  variables:
-    VOID_RPA_WIN_HOST: "10.0.0.28"
-    VOID_RPA_WIN_USER: "rpa-win"
-  before_script:
-    - pip install --no-cache-dir pywinrm requests
-  script:
-    - |
-      set -eu
-      if [ -z "${VOID_RPA_WIN_PASS:-}" ]; then
-        echo "VOID_RPA_WIN_PASS not set — skip VM sync"
-        exit 0
-      fi
-      python3 scripts/ci/rpa-winrm.py --sync-repo-only
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main" && $RPA_AFTER_RELEASE != "1"
-
-
-# ── SYNC website/releases.json FROM GITHUB ───────
-# Durable automation: after a GitHub Release (or on schedule), rewrite
-# website/releases.json from the newest published release and commit if changed.
-# Primary path: GitHub release job commits via GITLAB_TOKEN.
-# Fallback: this job (manual / schedule / API pipeline trigger with SYNC_RELEASES=1).
-
-sync-releases-from-github:
-  stage: notify
-  image: alpine:latest
-  needs: []
-  before_script:
-    - apk add --no-cache curl jq git bash
-  script:
-    - |
-      set -eu
-      bash scripts/sync-website-releases-from-github.sh
-      if git diff --quiet -- website/releases.json \
-        && ! git status --porcelain -- website/releases.json | grep -q .; then
-        echo "releases.json already matches GitHub — nothing to commit"
-        exit 0
-      fi
-      TAG="$(jq -r .tag website/releases.json)"
-      git config user.email "ci@lightfoot.cloud"
-      git config user.name "void-browser-ci"
-      git add website/releases.json
-      git commit -m "chore(website): sync releases.json for ${TAG}"
-      git push "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}:${CI_SERVER_PORT:-80}/${CI_PROJECT_PATH}.git" "HEAD:${CI_COMMIT_REF_NAME}" \
-        || git push origin "HEAD:${CI_COMMIT_REF_NAME}"
-      echo "Committed and pushed website/releases.json for $TAG"
-  rules:
-    - if: $RPA_AFTER_RELEASE == "1"
-      when: never
-    - if: $CI_PIPELINE_SOURCE == "schedule"
-    - if: $CI_PIPELINE_SOURCE == "pipeline" && $SYNC_RELEASES == "1"
-    - if: $CI_COMMIT_BRANCH == "main"
-      when: manual
-      allow_failure: true
-  allow_failure: true
-
 # ── TRIGGER GITHUB BUILD (tags) ──────────────────
 # Mirror-only is NOT enough: GitLab→GitHub push mirroring syncs tag refs but
 # often does NOT create a GitHub tag PushEvent, so on.push.tags never fires.
@@ -397,9 +134,11 @@ sync-releases-from-github:
 #
 # Manual fallback (no PAT): https://github.com/dadhatdaniel/void-browser/actions/workflows/build.yml
 #   → Run workflow → choose the tag.
+#
+# needs: [] — fire ASAP on tags; do not wait for slow cargo-audit.
 
 trigger-github-build:
-  stage: notify
+  stage: trigger
   image: alpine:latest
   needs: []
   rules:
@@ -482,5 +221,288 @@ trigger-github-build:
       echo "Unexpected response"
       exit 1
   allow_failure: true
+
+# ── SYNC website/releases.json FROM GITHUB ───────
+# Durable automation: after a GitHub Release (or on schedule), rewrite
+# website/releases.json from the newest published release and commit if changed.
+# Primary path: GitHub release job commits via GITLAB_TOKEN.
+# Fallback: this job (manual / schedule / API pipeline trigger with SYNC_RELEASES=1).
+# Stage is before deploy so a played sync can land before site jobs in the UI;
+# a successful commit still triggers a fresh main pipeline that auto-deploys.
+
+sync-releases-from-github:
+  stage: sync
+  image: alpine:latest
+  needs: []
+  before_script:
+    - apk add --no-cache curl jq git bash
+  script:
+    - |
+      set -eu
+      bash scripts/sync-website-releases-from-github.sh
+      if git diff --quiet -- website/releases.json \
+        && ! git status --porcelain -- website/releases.json | grep -q .; then
+        echo "releases.json already matches GitHub — nothing to commit"
+        exit 0
+      fi
+      TAG="$(jq -r .tag website/releases.json)"
+      git config user.email "ci@lightfoot.cloud"
+      git config user.name "void-browser-ci"
+      git add website/releases.json
+      git commit -m "chore(website): sync releases.json for ${TAG}"
+      git push "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}:${CI_SERVER_PORT:-80}/${CI_PROJECT_PATH}.git" "HEAD:${CI_COMMIT_REF_NAME}" \
+        || git push origin "HEAD:${CI_COMMIT_REF_NAME}"
+      echo "Committed and pushed website/releases.json for $TAG"
+  rules:
+    - if: $RPA_AFTER_RELEASE == "1"
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_PIPELINE_SOURCE == "pipeline" && $SYNC_RELEASES == "1"
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
+  allow_failure: true
+
+# ── DEPLOY WEBSITE ───────────────────────────────
+# Auto when website/** changes on main. Manual Play otherwise (redeploy).
+# No needs:[] — respects stage order after lint/security/sync.
+
+deploy-site:
+  stage: deploy
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache openssh-client curl
+    - mkdir -p ~/.ssh
+    - cp "$DEPLOY_SSH_KEY" ~/.ssh/id_ed25519
+    - chmod 600 ~/.ssh/id_ed25519
+    - ssh-keyscan -p 22 $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
+  script:
+    - echo "=== Deploying Void Browser Website ==="
+    - scp -o StrictHostKeyChecking=no website/index.html website/style.css website/Dockerfile website/robots.txt website/sitemap.xml website/ai.txt website/tdmrep.json website/favicon.ico website/favicon-32.png website/favicon-192.png website/favicon-512.png website/apple-touch-icon.png website/site.webmanifest website/manifest.json website/releases.json website/scan-results.json root@$DEPLOY_HOST:/mnt/user/appdata/lightfootcloud/websites/void-browser/
+    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "cd /mnt/user/appdata/lightfootcloud/websites/void-browser && docker build -t void-website . && docker stop void-website 2>/dev/null; docker rm void-website 2>/dev/null; docker run -d --name void-website --restart unless-stopped -p 5080:80 --network proxynet --memory=128m --security-opt no-new-privileges:true void-website"
+    - sleep 5
+    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -sf http://localhost:5080/ > /dev/null && echo 'Health check PASSED' || (echo 'Health check FAILED' && exit 1)"
+    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -sf http://localhost:5080/releases.json > /dev/null && echo 'releases.json OK' || (echo 'releases.json MISSING' && exit 1)"
+    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -sf http://localhost:5080/scan-results.json > /dev/null && echo 'scan-results.json OK' || (echo 'scan-results.json MISSING' && exit 1)"
+    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -sf -o /dev/null -w '%{http_code}' http://localhost:5080/manifest.json | grep -q 200 && echo 'manifest.json OK' || (echo 'manifest.json FAILED' && exit 1)"
+    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -sI http://localhost:5080/ | grep -E '^(X-|Referrer|Content-Security|Permissions)'"
+    - ssh -o StrictHostKeyChecking=no root@$DEPLOY_HOST "curl -s http://localhost:5080/ | grep -qi '<script[^>]*google-analytics' && echo 'TRACKING FOUND' && exit 1 || echo 'No tracking scripts - PASSED'"
+    - echo "=== Deployment verified ==="
+    - echo "Live at https://void.lightfoot.cloud"
+  rules:
+    - if: $RPA_AFTER_RELEASE == "1"
+      when: never
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - website/**/*
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
   variables:
     DEPLOY_HOST: "10.0.0.10"
+
+# ── SITE E2E SMOKE (every main push) ─────────────
+# Hits the live container on the deploy host (:5080). Cloudflare may challenge
+# https://void.lightfoot.cloud for bots — CI uses the origin port instead.
+#
+# MUST run after deploy-site when deploy is automatic (website/**).
+# Do NOT use needs:[] — that started e2e at pipeline start and raced deploy.
+# Do NOT use needs:[deploy-site] — deploy-site is always created on main (auto
+# or manual Play); a hard needs would block e2e until someone clicks Play on
+# non-website pushes. Stage order is correct: auto deploy blocks the e2e stage;
+# manual deploy has allow_failure so e2e proceeds against the current live site.
+
+site-e2e:
+  stage: e2e
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache curl jq
+  script:
+    - |
+      set -eu
+      BASE="${SITE_E2E_BASE:-http://10.0.0.10:5080}"
+      echo "=== Site E2E against $BASE ==="
+      for path in / /manifest.json /releases.json /scan-results.json /robots.txt /sitemap.xml /style.css /favicon.ico; do
+        code=$(curl -sS -o /tmp/e2e-body -w '%{http_code}' "$BASE$path" || echo "000")
+        echo "$code $path"
+        test "$code" = "200"
+      done
+      curl -sf "$BASE/releases.json" -o /tmp/releases.json
+      jq -e '.tag and .assets' /tmp/releases.json >/dev/null
+      jq -r '.assets | to_entries[] | .value.url' /tmp/releases.json > /tmp/download-urls.txt
+      while IFS= read -r url; do
+        [ -z "$url" ] && continue
+        code=$(curl -sS -I -L -o /dev/null -w '%{http_code}' --max-time 60 "$url" || echo "000")
+        echo "$code download $url"
+        echo "$code" | grep -Eq '^(200|302)$'
+      done < /tmp/download-urls.txt
+      curl -sf "$BASE/scan-results.json" -o /tmp/scan.json
+      jq -e '.status and (.website or .artifacts)' /tmp/scan.json >/dev/null
+      status=$(jq -r '.status' /tmp/scan.json)
+      echo "scan-results status=$status"
+      if [ "$status" = "pending" ]; then
+        echo "WARNING: scan-results still pending (VT key missing or scan not run)"
+      else
+        jq -e '(.website.total // 0) > 0 or ((.artifacts // []) | length) > 0' /tmp/scan.json >/dev/null
+        echo "VT scores present"
+      fi
+      curl -sf "$BASE/" -o /tmp/index.html
+      if grep -Eiq '<script[^>]*google-analytics|googletagmanager' /tmp/index.html; then
+        echo 'TRACKING FOUND'
+        exit 1
+      fi
+      echo 'No tracking scripts'
+      # Void background (canvas starfield) + download badges
+      curl -sf "$BASE/style.css" -o /tmp/style.css
+      grep -Eq 'void-bg|void-canvas|void-nebula' /tmp/index.html
+      grep -Eq 'void-bg|void-canvas' /tmp/style.css
+      echo 'void starfield OK'
+      grep -Eq 'download-badges|shields\.io' /tmp/index.html
+      echo 'download badges OK'
+      echo "=== Site E2E PASSED ==="
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" && $RPA_AFTER_RELEASE != "1"
+  variables:
+    SITE_E2E_BASE: "http://10.0.0.10:5080"
+
+# ── VIRUSTOTAL (optional, manual) ────────────────
+# Add GitLab CI/CD variable: VIRUSTOTAL_API_KEY (masked, protected optional)
+# Optional: GITHUB_TOKEN (read-only) for higher GitHub asset download limits
+# Job writes website/scan-results.json — never calls VT from the browser.
+# Packages: prefers VT_RELEASE_TAG/RELEASE_TAG, else newest GitHub Release with
+# assets (tags without a published Release no longer 404-fail the job).
+# After deploy/e2e so Play scans the currently live site + release assets.
+
+virus-scan:
+  stage: scan
+  image: python:3.12-alpine
+  timeout: 2h
+  variables:
+    VT_WEBSITE_URL: "https://void.lightfoot.cloud"
+  script:
+    - |
+      set -e
+      # Hint only — script falls back if this tag has no GitHub Release/assets yet
+      export VT_RELEASE_TAG="${VT_RELEASE_TAG:-${RELEASE_TAG:-${CI_COMMIT_TAG:-}}}"
+      if [ -z "${VIRUSTOTAL_API_KEY:-}" ]; then
+        echo "VIRUSTOTAL_API_KEY not set — writing pending placeholder (no fake scores)."
+        python3 scripts/virustotal-scan.py --dry-run
+      else
+        echo "VirusTotal key present (value not printed). Scanning website + release assets..."
+        echo "Preferred release tag: ${VT_RELEASE_TAG:-"(auto)"}"
+        python3 scripts/virustotal-scan.py
+      fi
+    - test -f website/scan-results.json
+    - python3 -c "import json; d=json.load(open('website/scan-results.json')); print('status=', d.get('status'), 'tag=', d.get('release_tag'), 'artifacts=', len(d.get('artifacts') or []), 'site=', (d.get('website') or {}).get('positives'), '/', (d.get('website') or {}).get('total'))"
+  artifacts:
+    paths:
+      - website/scan-results.json
+    expire_in: 30 days
+    when: always
+    # Artifact upload failures after a green script must not mark the job failed
+  allow_failure: true
+  rules:
+    - if: $RPA_AFTER_RELEASE == "1"
+      when: never
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
+    - if: $CI_COMMIT_TAG
+      when: manual
+      allow_failure: true
+
+# ── RPA on rpa-win (Unraid LAN → WinRM) ──────────
+# Primary post-release GUI gate. GitHub Actions windows-latest is secondary.
+# Triggered automatically when GitHub release job commits releases.json and
+# POSTs a pipeline with RPA_AFTER_RELEASE=1 (see sync-website-releases-to-gitlab.sh).
+#
+# GitLab CI/CD variables (masked, protected=false):
+#   VOID_RPA_WIN_PASS  — password for rpa-win (never commit)
+#   VOID_RPA_WIN_USER  — default rpa-win
+#   VOID_RPA_WIN_HOST  — default 10.0.0.28
+# Guest needs Active console (rpa-win Autologon after reboot — VNC viewer not required).
+
+rpa-windows:
+  stage: rpa
+  image: python:3.12-slim
+  needs: []
+  timeout: 2h
+  allow_failure: true
+  resource_group: void-rpa-win
+  variables:
+    VOID_RPA_WIN_HOST: "10.0.0.28"
+    VOID_RPA_WIN_USER: "rpa-win"
+    VOID_RPA_MIRROR_DIR: "/mnt/user/appdata/void-rpa-artifacts"
+  before_script:
+    - pip install --no-cache-dir pywinrm requests
+  script:
+    - |
+      set -eu
+      echo "=== RPA Windows via WinRM → ${VOID_RPA_WIN_HOST} ==="
+      if [ -z "${VOID_RPA_WIN_PASS:-}" ]; then
+        echo "BLOCKER: set GitLab CI variable VOID_RPA_WIN_PASS (masked, protected=false)"
+        echo "  Never commit the password. Guest: rpa-win @ 10.0.0.28"
+        exit 1
+      fi
+      TAG="${RELEASE_TAG:-${CI_COMMIT_TAG:-}}"
+      echo "RELEASE_TAG=${TAG:-"(latest via releases.json)"}"
+      EXTRA=""
+      if [ -n "$TAG" ]; then
+        EXTRA="--release-tag $TAG --wait-github"
+      fi
+      python3 scripts/ci/rpa-winrm.py \
+        --sync-repo \
+        --download-install \
+        --timeout-sec "${RPA_TIMEOUT_SEC:-1800}" \
+        $EXTRA
+    - |
+      set -eu
+      latest=$(ls -1dt artifacts/rpa/*/ 2>/dev/null | head -n1 || true)
+      if [ -z "$latest" ]; then
+        echo "No artifacts/rpa/* pulled"
+        exit 1
+      fi
+      echo "Artifacts: $latest"
+      test -f "${latest}report.json"
+      python3 scripts/ci/check-rpa-report.py "${latest}report.json"
+  artifacts:
+    when: always
+    paths:
+      - artifacts/rpa/
+    expire_in: 30 days
+  rules:
+    # Automatic: pipeline created by GitHub release sync (RPA_AFTER_RELEASE=1)
+    - if: $RPA_AFTER_RELEASE == "1"
+    # Automatic: website/releases.json commit from GitHub release sync
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - website/releases.json
+    # Manual play from any main / tag pipeline (test without a new release)
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
+    - if: $CI_COMMIT_TAG =~ /^v/
+      when: manual
+      allow_failure: true
+
+# Keep rpa-win git tree fresh on every main push (harness + docs).
+sync-rpa-win-repo:
+  stage: notify
+  image: python:3.12-slim
+  needs: []
+  allow_failure: true
+  variables:
+    VOID_RPA_WIN_HOST: "10.0.0.28"
+    VOID_RPA_WIN_USER: "rpa-win"
+  before_script:
+    - pip install --no-cache-dir pywinrm requests
+  script:
+    - |
+      set -eu
+      if [ -z "${VOID_RPA_WIN_PASS:-}" ]; then
+        echo "VOID_RPA_WIN_PASS not set — skip VM sync"
+        exit 0
+      fi
+      python3 scripts/ci/rpa-winrm.py --sync-repo-only
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" && $RPA_AFTER_RELEASE != "1"

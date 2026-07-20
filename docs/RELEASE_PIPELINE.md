@@ -10,18 +10,41 @@ flowchart TD
   C --> E["Publish GitHub Release"]
   E --> F["sync-website-releases-to-gitlab"]
   F --> G["Commit website/releases.json on main"]
-  G --> H["GitLab deploy-site"]
-  G --> J["GitLab rpa-windows job"]
-  F --> I["POST RPA_AFTER_RELEASE only if no commit"]
-  I --> J
-  J --> K["WinRM to rpa-win 10.0.0.28"]
-  K --> L["git sync + download exe + full RPA"]
-  L --> M["auto_update scenario"]
-  L --> N["Artifacts: GitLab + optional Unraid mirror"]
-  E --> O["GHA RPA Windows secondary smoke"]
+  G --> H["GitLab deploy-site AUTO"]
+  H --> I["GitLab site-e2e after deploy"]
+  G --> J["GitLab rpa-windows AUTO"]
+  F --> K["POST RPA_AFTER_RELEASE only if no commit"]
+  K --> J
+  J --> L["WinRM to rpa-win 10.0.0.28"]
+  L --> M["git sync + download exe + full RPA"]
+  M --> N["auto_update scenario"]
+  M --> O["Artifacts: GitLab + optional Unraid mirror"]
+  E --> P["GHA RPA Windows secondary smoke"]
 ```
 
-## What runs automatically
+## GitLab stage order
+
+`lint → security → trigger → sync → deploy → e2e → scan → rpa → notify`
+
+`site-e2e` is in **e2e** (after **deploy**). It must not use `needs: []` — that raced the live `:5080` origin before `deploy-site` finished.
+
+## Auto vs manual (Play)
+
+| Job | Stage | When it runs |
+|-----|-------|----------------|
+| `rustfmt` / `clippy` | lint | **Auto** on `main` + MRs |
+| `cargo-audit` / `license-check` | security | **Auto** on `main` + tags |
+| `trigger-github-build` | trigger | **Auto** on `v*` tags (`needs: []` so it fires ASAP) |
+| `sync-releases-from-github` | sync | **Auto** on schedule / API `SYNC_RELEASES=1`; **Manual** on `main` |
+| `deploy-site` | deploy | **Auto** on `main` when `website/**` changes; **Manual** otherwise |
+| `site-e2e` | e2e | **Auto** on every `main` push (after auto deploy when that job ran) |
+| `virus-scan` | scan | **Manual** only (main + tags) — do not automate |
+| `rpa-windows` | rpa | **Auto** on `RPA_AFTER_RELEASE=1` or `website/releases.json` change; **Manual** otherwise |
+| `sync-rpa-win-repo` | notify | **Auto** on every `main` push |
+
+`RPA_AFTER_RELEASE=1` pipelines skip everything except `rpa-windows`.
+
+## What runs automatically (release path)
 
 | Step | How |
 |------|-----|
@@ -29,6 +52,7 @@ flowchart TD
 | `latest.json` on GitHub Releases | Release job `generate-updater-manifest.sh` |
 | Website `releases.json` | `scripts/sync-website-releases-to-gitlab.sh` commits to GitLab `main` |
 | Site deploy | `deploy-site` on `website/**` changes |
+| Site E2E | `site-e2e` after deploy stage (live `:5080`) |
 | RPA on rpa-win (incl. `auto_update`) | Push with `website/releases.json` changes, **or** API `RPA_AFTER_RELEASE=1` if already up to date |
 | GHA hosted RPA smoke | `.github/workflows/rpa-windows.yml` on `release: published` |
 | rpa-win repo refresh | `sync-rpa-win-repo` on each `main` push |
@@ -43,6 +67,8 @@ GitLab Unraid runners process about one job at a time. API pipelines with `RPA_A
 |------|-----|
 | `VOID_RPA_WIN_PASS` | Set in GitLab CI (short passwords cannot be masked — rotate to 8+ chars) |
 | VirusTotal scan | Still manual play (`virus-scan`) — do **not** automate |
+| `sync-releases-from-github` on main | Fallback Play if GHA sync missed; schedule/API are auto |
+| `deploy-site` without `website/**` | Optional redeploy Play |
 | Runner queue | RPA waits behind lint/clippy when the shared runner is busy |
 | Local WinRM TrustedHosts | One-time for `rpa-remote-run.ps1` on DANIELRIG |
 
