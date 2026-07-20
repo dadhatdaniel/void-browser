@@ -124,7 +124,7 @@ What it does:
 | `visit_void_site` | **LAN** `http://10.0.0.10:5080/` hero → scroll → `#download`; optional public URL |
 | `settings_preserves_tab` | open site → Settings (Ctrl+,) overlay → Esc; **fail hard** if tab wiped to blank |
 | `new_tab` | Ctrl+T second tab; Ctrl+Shift+Tab switch back; blank fail |
-| `youtube_signin_page` | Load `accounts.google.com/signin` UI (no password unless env set); blank fail |
+| `youtube_signin_page` | Load `accounts.google.com/signin` (retries + new tab); **hard fail** if stuck on Void New Tab; **soft_fail** if navigated but live Google/WebView2 challenge hides classic white card |
 | `context_menu` | URL bar clipboard Ctrl+C / Ctrl+V |
 | `auto_update` | Fetch GitHub `latest.json` (**fail on 404 / wrong URLs**); stage older portable (default `v0.1.0-alpha.15`); launch → startup quiet check and/or Settings **Check for updates**; assert **Update available** dialog; screenshot; click **Install & Relaunch** |
 
@@ -224,7 +224,7 @@ Job: `rpa-windows` in `.gitlab-ci.yml` → `scripts/ci/rpa-winrm.py`.
 | Manual play on `main` / `v*` | Same job, no new tag needed |
 | `main` push | `sync-rpa-win-repo` refreshes `C:\void-browser` on the VM |
 
-Artifacts: GitLab job `artifacts/rpa/**` (+ optional `/mnt/user/appdata/void-rpa-artifacts` when the runner can write it).
+Artifacts: GitLab job uploads slim `artifacts/rpa-upload/` (JPEG + `report.json`). Full PNGs mirror to `/mnt/user/appdata/void-rpa-artifacts/<stamp>/` when the runner mounts that share.
 
 ### Path B — GitHub Actions (secondary)
 

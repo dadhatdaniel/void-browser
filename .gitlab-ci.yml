@@ -479,7 +479,7 @@ rpa-windows:
     VOID_RPA_WIN_USER: "rpa-win"
     VOID_RPA_MIRROR_DIR: "/mnt/user/appdata/void-rpa-artifacts"
   before_script:
-    - pip install --no-cache-dir pywinrm requests
+    - pip install --no-cache-dir pywinrm requests pillow
   script:
     - |
       set -eu
@@ -509,12 +509,37 @@ rpa-windows:
       fi
       echo "Artifacts: $latest"
       test -f "${latest}report.json"
+      # Prepare slim upload BEFORE check so failed suites still have an archive to upload.
+      python3 scripts/ci/prepare-rpa-upload.py \
+        --src artifacts/rpa \
+        --dest artifacts/rpa-upload
+      ls -la artifacts/rpa-upload | head -40
+      du -sh artifacts/rpa-upload artifacts/rpa || true
       python3 scripts/ci/check-rpa-report.py "${latest}report.json"
+  after_script:
+    - |
+      # Best-effort: rebuild upload pack + host mirror even if script failed mid-way.
+      set +e
+      pip install --no-cache-dir pillow >/dev/null 2>&1
+      python3 scripts/ci/prepare-rpa-upload.py \
+        --src artifacts/rpa \
+        --dest artifacts/rpa-upload 2>/dev/null || true
+      latest=$(ls -1dt artifacts/rpa/*/ 2>/dev/null | head -n1 || true)
+      if [ -n "$latest" ] && [ -d "${VOID_RPA_MIRROR_DIR:-}" ]; then
+        stamp=$(basename "$latest")
+        mkdir -p "${VOID_RPA_MIRROR_DIR}/${stamp}"
+        cp -a "${latest}." "${VOID_RPA_MIRROR_DIR}/${stamp}/" 2>/dev/null || true
+        echo "Mirrored full PNGs -> ${VOID_RPA_MIRROR_DIR}/${stamp}"
+      else
+        echo "Mirror skip (VOID_RPA_MIRROR_DIR not mounted or no artifacts)"
+      fi
   artifacts:
     when: always
+    # Tiny JPEG pack + report only. Upload failure must not erase suite signal:
+    # job already has allow_failure:true; keep archive small to avoid coordinator 500.
     paths:
-      - artifacts/rpa/
-    expire_in: 30 days
+      - artifacts/rpa-upload/
+    expire_in: 14 days
   rules:
     # Automatic: pipeline created by GitHub release sync (RPA_AFTER_RELEASE=1)
     - if: $RPA_AFTER_RELEASE == "1"

@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Print RPA report summary; exit 1 if overall ok is false."""
+"""Print RPA report summary; exit 1 if overall ok is false.
+
+Scenarios marked soft_fail (e.g. live Google WebView2 challenge) count as ok
+for the suite exit code when report.ok is True. Hard failures still fail CI.
+"""
 from __future__ import annotations
 
 import json
@@ -14,9 +18,15 @@ def main() -> int:
     path = Path(sys.argv[1])
     data = json.loads(path.read_text(encoding="utf-8"))
     print("ok=", data.get("ok"))
+    soft_meta = (data.get("meta") or {}).get("soft_fail_scenarios") or []
     for sc in data.get("scenarios") or []:
-        mark = "PASS" if sc.get("ok") else "FAIL"
-        print(mark, sc.get("name"), f"({sc.get('duration_sec')}s)")
+        if sc.get("soft_fail"):
+            mark = "SOFT"
+        else:
+            mark = "PASS" if sc.get("ok") else "FAIL"
+        print(mark, sc.get("name"), f"({sc.get('duration_sec')}s)", sc.get("error") or "")
+    if soft_meta:
+        print("soft_fail_scenarios=", ",".join(soft_meta))
     teardown = (data.get("meta") or {}).get("teardown_uninstall") or {}
     if teardown:
         tmark = "PASS" if teardown.get("ok") else "FAIL"

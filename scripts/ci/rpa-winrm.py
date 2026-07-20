@@ -265,8 +265,9 @@ $ErrorActionPreference = 'Stop'
 $wrapper = {ps_quote(wrapper_path)}
 $taskName = 'VoidBrowserRPA'
 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+# Minimized so the console does not cover Void / steal Ctrl+L keystrokes mid-suite.
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument (
-  "-NoProfile -ExecutionPolicy Bypass -File `"$wrapper`""
+  "-NoProfile -WindowStyle Minimized -ExecutionPolicy Bypass -File `"$wrapper`""
 )
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
