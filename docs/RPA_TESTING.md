@@ -11,7 +11,7 @@ Linux/Unraid Docker **cannot** run this harness (no WebView2 GUI). See
 | Path | Today |
 |------|--------|
 | GitLab `rpa-windows` (WinRM → `10.0.0.28`) after GitHub Release | **Yes** — `sync-website-releases-to-gitlab.sh` POSTs `RPA_AFTER_RELEASE=1` |
-| GitLab `rpa-linux` (SSH → `10.0.1.114`) after GitHub Release | **Yes** — same trigger; smoke AppImage launch + navigate |
+| GitLab `rpa-linux` (SSH → `10.0.1.114`) after GitHub Release | **Yes** — same trigger; full-ish AppImage suite (xdotool) |
 | GitHub Actions `RPA Windows` after release | **Yes** — Build & Release `workflow_dispatch`es with `release_tag` (needs Environment secret `GH_WORKFLOW_TOKEN`). Plain `on.release` alone is unreliable: `GITHUB_TOKEN`-created releases do not start sibling workflows. |
 | GitHub Actions nightly / `workflow_dispatch` | Yes |
 | Unraid cron / local `rpa-after-release.ps1` | Optional backup |
@@ -23,7 +23,7 @@ Linux/Unraid Docker **cannot** run this harness (no WebView2 GUI). See
 1. Tag + push on GitLab (`v*`) → `trigger-github-build` kicks **Build & Release**.
 2. Build & Release publishes installers + signed `latest.json`.
 3. Release job syncs `website/releases.json` to GitLab → **deploy-site**.
-4. Same sync POSTs GitLab pipeline `RPA_AFTER_RELEASE=1` → **rpa-windows** (WinRM) + **rpa-linux** (SSH smoke).
+4. Same sync POSTs GitLab pipeline `RPA_AFTER_RELEASE=1` → **rpa-windows** (WinRM) + **rpa-linux** (SSH).
 5. Secondary: Build & Release dispatches hosted **RPA Windows** (`release_tag=v*`) via `GH_WORKFLOW_TOKEN`.
 
 Requires GitLab CI variables **`VOID_RPA_WIN_PASS`** and **`VOID_RPA_LINUX_PASS`** (masked). Windows VM uses **rpa-win Autologon**; Linux VM uses **GDM autologon** for `rpa-linux` (see [TEST_VMS.md](./TEST_VMS.md)).
@@ -228,7 +228,7 @@ Job: `rpa-windows` in `.gitlab-ci.yml` → `scripts/ci/rpa-winrm.py`.
 
 Artifacts: full PNGs + `report.json` mirror to `/mnt/user/appdata/void-rpa-artifacts/<stamp>/` (runner share mount). GitLab job artifact upload is disabled on this instance (coordinator 500). Optional local JPEG pack: `python3 scripts/ci/prepare-rpa-upload.py`.
 
-### Path A2 — GitLab → rpa-linux (smoke, parallel)
+### Path A2 — GitLab → rpa-linux (parallel full-ish suite)
 
 Job: `rpa-linux` in `.gitlab-ci.yml` → `scripts/ci/rpa-ssh.py`.
 
@@ -236,16 +236,29 @@ Guest: `void-test-linux` / `rpa-linux` @ **`10.0.1.114`**. VNC diagnose: `http:/
 
 | Event | Behavior |
 |-------|----------|
-| Pipeline var `RPA_AFTER_RELEASE=1` | Auto after GitHub release sync; AppImage smoke |
-| `website/releases.json` change on `main` | Auto |
+| Pipeline var `RPA_AFTER_RELEASE=1` | Auto after GitHub release sync; full Linux suite |
+| `website/releases.json` change on `main` | Auto (same rule as `rpa-windows`) |
 | Manual play on `main` / `v*` | Same job |
 
-Scenarios (initial): `smoke_launch`, `smoke_navigate` via `scripts/run-rpa-linux.sh` (downloads Linux AppImage from LAN `releases.json`).
+Default scenarios (Windows-parity names):
+`download_install,app_launch,smoke_navigate,nav_history,visit_void_site,settings_preserves_tab,new_tab,youtube_signin_page,context_menu,auto_update`
+
+| Windows | Linux |
+|---------|--------|
+| `void-browser.exe` / NSIS | AppImage (+ optional `.deb` via `VOID_RPA_RUN_DEB=1`) |
+| pywinauto UIA | xdotool + scrot (`tests/rpa/runner_linux.py`) — **AT-SPI does not expose Void chrome** on Ubuntu 24.04 WebKitGTK/Tauri |
+| Blank-content UIA asserts | Pillow content-region sampling of screenshots |
+| `auto_update` older portable + Install dialog | older AppImage + `latest.json` `linux-x86_64`; dialog accept is best-effort (no UIA tree) |
+| NSIS uninstall teardown | kill processes + remove AppImages (`VOID_RPA_CLEANUP=1`) + optional `dpkg --purge` |
+| `youtube_signin_page` soft_fail | same soft_fail semantics |
+
+**Linux-impossible / limited:** real AT-SPI context menus, reliable Install & Relaunch button clicks, WebView2-style Google challenge classification. Omnibox focus uses click-chrome + Ctrl+L (not UIA Edit).
 
 Requires **`VOID_RPA_LINUX_PASS`**. Desktop: GDM autologin — see `scripts/ci/configure-rpa-linux-desktop.sh`.
 
 ```powershell
 $env:VOID_RPA_LINUX_PASS = '<password>'
+$env:VOID_RPA_FORCE_DOWNLOAD = '1'   # always fetch latest AppImage
 python scripts/ci/rpa-ssh.py --push-harness --download-install
 ```
 

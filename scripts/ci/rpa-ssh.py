@@ -29,7 +29,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
-DEFAULT_SCENARIOS = "smoke_launch,smoke_navigate"
+DEFAULT_SCENARIOS = (
+    "download_install,app_launch,smoke_navigate,nav_history,visit_void_site,"
+    "settings_preserves_tab,new_tab,youtube_signin_page,context_menu,auto_update"
+)
 DEFAULT_REMOTE_ROOT = "/home/rpa-linux/void-browser"
 
 
@@ -128,6 +131,8 @@ def push_harness(client, remote_root: str, local_root: Path) -> None:
     rels = [
         "scripts/run-rpa-linux.sh",
         "scripts/ci/configure-rpa-linux-desktop.sh",
+        "tests/rpa/runner_linux.py",
+        "tests/rpa/requirements.txt",
         "docs/RPA_TESTING.md",
         "docs/TEST_VMS.md",
     ]
@@ -175,16 +180,25 @@ def run_smoke(
     status = f"/home/rpa-linux/void-rpa-status/{run_id}"
     print(f"[rpa-linux] starting smoke {run_id} scenarios={scenarios}", flush=True)
 
+    force_dl = os.environ.get("VOID_RPA_FORCE_DOWNLOAD", "1").strip() or "1"
+    sudo_pass = os.environ.get("VOID_RPA_LINUX_PASS", "").strip()
+    # Escape for single-quoted bash embedding
+    sudo_q = sudo_pass.replace("'", "'\"'\"'")
+
     wrapper = f"""#!/usr/bin/env bash
 set +e
 export DISPLAY=:0
 export XDG_RUNTIME_DIR=/run/user/$(id -u)
 export DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus
 export VOID_RELEASES_JSON_URL=http://10.0.0.10:5080/releases.json
+export VOID_RPA_FORCE_DOWNLOAD={force_dl}
+export VOID_RPA_LINUX_SUDO_PASS='{sudo_q}'
 mkdir -p {status} {remote_root}/artifacts/rpa {remote_root}/downloads/rpa
 chmod +x {remote_root}/scripts/run-rpa-linux.sh
+python3 -m pip install --user -q Pillow 2>/dev/null || true
+echo '{sudo_q}' | sudo -S DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xclip scrot xdotool 2>/dev/null || true
 cd {remote_root}
-./scripts/run-rpa-linux.sh --scenarios {scenarios} > {status}/run.log 2>&1
+./scripts/run-rpa-linux.sh --scenarios '{scenarios}' > {status}/run.log 2>&1
 code=$?
 latest=$(ls -1dt {remote_root}/artifacts/rpa/*/ 2>/dev/null | head -n1 || true)
 python3 -c "import json; print(json.dumps({{'exit_code': $code, 'finished_at': __import__('datetime').datetime.now().isoformat(), 'artifact_dir': ('''$latest'''.strip() or None)}}))" > {status}/done.json
@@ -301,7 +315,7 @@ def main() -> int:
     parser.add_argument("--sync-repo-only", action="store_true")
     parser.add_argument("--push-harness", action="store_true", default=True)
     parser.add_argument("--no-push-harness", action="store_true")
-    parser.add_argument("--timeout-sec", type=int, default=900)
+    parser.add_argument("--timeout-sec", type=int, default=1800)
     parser.add_argument("--out", default=str(ROOT / "artifacts" / "rpa"))
     parser.add_argument("--configure-desktop", action="store_true",
                         help="Re-apply GDM autologin + no-lock before smoke")

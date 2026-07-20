@@ -559,8 +559,9 @@ rpa-windows:
       when: manual
       allow_failure: true
 
-# ── RPA smoke on rpa-linux (Unraid LAN → SSH) ─────
-# Parallel to rpa-windows. Smoke-only initially (AppImage launch + navigate).
+# ── RPA suite on rpa-linux (Unraid LAN → SSH) ─────
+# Parallel to rpa-windows. Full-ish AppImage suite via xdotool
+# (AT-SPI does not expose Void chrome on Ubuntu 24.04 WebKitGTK/Tauri).
 # Guest needs Active GNOME session (GDM autologin — VNC viewer not required).
 #
 # GitLab CI/CD variables (masked, protected=false):
@@ -593,6 +594,7 @@ rpa-linux:
       # Force fresh AppImage from releases.json (parity with Windows download_install).
       export VOID_RPA_FORCE_DOWNLOAD="${VOID_RPA_FORCE_DOWNLOAD:-1}"
       python3 scripts/ci/rpa-ssh.py \
+        --sync-repo \
         --push-harness \
         --download-install \
         --scenarios "${RPA_LINUX_SCENARIOS:-download_install,app_launch,smoke_navigate,nav_history,visit_void_site,settings_preserves_tab,new_tab,youtube_signin_page,context_menu,auto_update}" \
@@ -620,10 +622,13 @@ rpa-linux:
         echo "Mirror skip (VOID_RPA_MIRROR_DIR not mounted or no artifacts)"
       fi
   rules:
+    # Automatic: pipeline created by GitHub release sync (RPA_AFTER_RELEASE=1)
     - if: $RPA_AFTER_RELEASE == "1"
+    # Automatic: website/releases.json commit from GitHub release sync
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
         - website/releases.json
+    # Manual play from any main / tag pipeline (test without a new release)
     - if: $CI_COMMIT_BRANCH == "main"
       when: manual
       allow_failure: true

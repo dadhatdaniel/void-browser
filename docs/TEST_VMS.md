@@ -153,7 +153,7 @@ virsh undefine void-rpa-windows-scratch --nvram
 
 1. VNC (optional diagnose): `http://10.0.0.10:5701/`
 2. Guest: `rpa-linux` @ `10.0.1.114` — **GDM autologin** (Xorg `:0`); OpenSSH enabled.
-3. GitLab job **`rpa-linux`** → `scripts/ci/rpa-ssh.py` → AppImage smoke (`smoke_launch`, `smoke_navigate`).
+3. GitLab job **`rpa-linux`** → `scripts/ci/rpa-ssh.py` → full Linux suite (`tests/rpa/runner_linux.py`): download AppImage from `releases.json`, launch, navigate / settings / tabs / YouTube (soft) / auto_update, teardown.
 4. Re-apply desktop config: `bash scripts/ci/configure-rpa-linux-desktop.sh` on the guest (or `--configure-desktop` via rpa-ssh).
 5. Local trigger from DANIELRIG:
 
@@ -171,7 +171,7 @@ Cloning a licensed disk can still require reactivation after hardware change (no
 ## Recommendation
 
 1. **RPA now** → this PC, or `void-rpa-windows` via WinRM (Autologon; VNC optional for diagnose).
-2. **Linux RPA smoke** → `void-test-linux` via GitLab `rpa-linux` / `scripts/ci/rpa-ssh.py`.
+2. **Linux RPA** → `void-test-linux` via GitLab `rpa-linux` / `scripts/ci/rpa-ssh.py` (full-ish suite; AT-SPI limited).
 3. **Do not** start `fresh-configured` for agent RPA (no VNC; steals GPU).
 
 ## SSH
