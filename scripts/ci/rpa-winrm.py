@@ -202,6 +202,15 @@ def build_wrapper(
     return f"""$ErrorActionPreference = 'Continue'
 $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')
 $env:PYTHONWARNINGS = 'ignore'
+# Force-minimize this console so it cannot cover Void / steal mouse clicks.
+try {{
+  Add-Type -Name RpaWin -Namespace VoidRpa -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr hWnd, int nCmdShow);
+[System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern System.IntPtr GetConsoleWindow();
+'@ -ErrorAction SilentlyContinue
+  $hwnd = [VoidRpa.RpaWin]::GetConsoleWindow()
+  if ($hwnd -ne [IntPtr]::Zero) {{ [void][VoidRpa.RpaWin]::ShowWindow($hwnd, 6) }}
+}} catch {{ }}
 {portable_line}Set-Location '{remote_root}'
 $exePath = Join-Path '{remote_root}' 'dist\\void-browser.exe'
 $extra = @()

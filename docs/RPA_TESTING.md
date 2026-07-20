@@ -155,6 +155,7 @@ Overrides:
 | `VOID_RPA_OLD_PORTABLE_URL` | Pin exact older `void-browser.exe` URL |
 | `VOID_DISABLE_UPDATER` | Set by harness on non-`auto_update` launches (app honors from alpha.18+) |
 | `VOID_RPA_SCENARIO_TIMEOUT` | Per-scenario hard timeout seconds (default `180`) |
+| `VOID_RPA_STRICT_YOUTUBE` | Set `1` to hard-fail `youtube_signin_page` (default: soft_fail / allow_failure for live Google + focus races) |
 
 ### Download notes
 
