@@ -219,9 +219,10 @@ if ((Test-Path $exePath) -and ('{dl_flag}' -eq '')) {{
 }}
 $code = 1
 try {{
-  & '.\\scripts\\run-rpa-windows.ps1' @extra -Scenarios '{scenarios}' -LaunchWait {launch_wait} {dl_flag} *>&1 |
-    Tee-Object -FilePath '{status_dir}\\run.log'
-  $code = $LASTEXITCODE
+  # Capture native exit code BEFORE Tee-Object; piping can clear $LASTEXITCODE.
+  & '.\\scripts\\run-rpa-windows.ps1' @extra -Scenarios '{scenarios}' -LaunchWait {launch_wait} {dl_flag} *> '{status_dir}\\run.log'
+  if ($null -ne $LASTEXITCODE) {{ $code = [int]$LASTEXITCODE }}
+  Get-Content -Path '{status_dir}\\run.log' -ErrorAction SilentlyContinue
 }} catch {{
   $_ | Out-String | Tee-Object -FilePath '{status_dir}\\run.log' -Append
   $code = 1
