@@ -152,7 +152,7 @@ try {
   `$code = 1
 }
 `$latest = Get-ChildItem (Join-Path '$RemoteRoot' 'artifacts\rpa') -Directory -ErrorAction SilentlyContinue |
-  Sort-Object LastWriteTime -Descending | Select-Object -First 1
+  Sort-Object Name -Descending | Select-Object -First 1
 @{
   exit_code = `$code
   finished_at = (Get-Date).ToString('o')

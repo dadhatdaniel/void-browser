@@ -153,7 +153,7 @@ try {
 if ($null -eq $code) { $code = 1 }
 
 $latest = Get-ChildItem (Join-Path $Root "artifacts\rpa") -Directory -ErrorAction SilentlyContinue |
-  Sort-Object LastWriteTime -Descending |
+  Sort-Object Name -Descending |
   Select-Object -First 1
 if ($latest) {
   Write-Host ""
