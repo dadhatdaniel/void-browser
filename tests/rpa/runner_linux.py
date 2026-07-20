@@ -834,12 +834,23 @@ def scenario_app_launch(s: LinuxRpaSession) -> ScenarioResult:
     try:
         if not s.alive():
             s.start()
+        # Wait for a real chrome window (avoid 10x10 transients right after relaunch).
+        size_ok = False
+        width = height = 0
+        title = ""
+        for _ in range(15):
+            s.wid = None
+            s.find_window(timeout=2.0)
+            s.ensure_foreground()
+            title = s.window_title()
+            left, top, right, bottom = s.window_rect()
+            width, height = max(0, right - left), max(0, bottom - top)
+            if width >= 640 and height >= 480:
+                size_ok = True
+                break
+            time.sleep(0.5)
         alive = s.alive()
-        title = s.window_title()
-        left, top, right, bottom = s.window_rect()
-        width, height = max(0, right - left), max(0, bottom - top)
         shot = s.shot("app_launch")
-        size_ok = width >= 640 and height >= 480
         steps.append(
             Step(
                 "window_visible",
