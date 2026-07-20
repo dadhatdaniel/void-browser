@@ -1427,12 +1427,34 @@ SCENARIOS: dict[str, Callable[[LinuxRpaSession], ScenarioResult]] = {
 }
 
 
-def teardown_cleanup() -> dict[str, Any]:
+def teardown_cleanup(*, timeout_sec: Optional[float] = None) -> dict[str, Any]:
     """
     Always-run teardown (Windows uninstall parity):
       kill Void, purge .deb if installed, remove staged/downloaded AppImages when CLEANUP=1
       (default ON via run-rpa-linux.sh).
+
+    Hard wall-clock cap (default 90s) so dpkg/purge cannot wedge done.json.
     """
+    wall = float(os.environ.get("VOID_RPA_TEARDOWN_TIMEOUT", "90"))
+    if timeout_sec is not None:
+        wall = float(timeout_sec)
+    if wall <= 0:
+        return _teardown_cleanup_inner()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        fut = pool.submit(_teardown_cleanup_inner)
+        try:
+            return fut.result(timeout=wall)
+        except FuturesTimeoutError:
+            kill_void_processes()
+            return {
+                "ok": False,
+                "detail": f"teardown hard-timeout after {wall:.0f}s",
+                "commands": [],
+                "timed_out": True,
+            }
+
+
+def _teardown_cleanup_inner() -> dict[str, Any]:
     cmds: list[str] = []
     detail_parts: list[str] = []
     ok = True
@@ -1448,7 +1470,7 @@ def teardown_cleanup() -> dict[str, Any]:
             ["dpkg", "-l", "void-browser"],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=15,
             check=False,
         )
         installed = check.returncode == 0 and "void-browser" in (check.stdout or "")
@@ -1462,7 +1484,7 @@ def teardown_cleanup() -> dict[str, Any]:
                     input=sudo_pass + "\n",
                     capture_output=True,
                     text=True,
-                    timeout=120,
+                    timeout=60,
                     check=False,
                 )
             else:
@@ -1470,7 +1492,7 @@ def teardown_cleanup() -> dict[str, Any]:
                     ["sudo", "-n", "dpkg", "--purge", "void-browser"],
                     capture_output=True,
                     text=True,
-                    timeout=120,
+                    timeout=60,
                     check=False,
                 )
             cmds.append(f"dpkg --purge void-browser -> {proc.returncode}")

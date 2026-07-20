@@ -531,9 +531,22 @@ rpa-windows:
   variables:
     VOID_RPA_WIN_HOST: "10.0.0.28"
     VOID_RPA_WIN_USER: "rpa-win"
+    # Runner config.toml must bind-mount this Unraid share into job containers:
+    #   volumes = [..., "/mnt/user/appdata/void-rpa-artifacts:/mnt/user/appdata/void-rpa-artifacts:rw"]
     VOID_RPA_MIRROR_DIR: "/mnt/user/appdata/void-rpa-artifacts"
   before_script:
     - pip install --no-cache-dir pywinrm requests pillow
+    - |
+      set -eu
+      if [ -d "${VOID_RPA_MIRROR_DIR}" ]; then
+        echo "Mirror mount OK: ${VOID_RPA_MIRROR_DIR}"
+        touch "${VOID_RPA_MIRROR_DIR}/.ci-write-check" && rm -f "${VOID_RPA_MIRROR_DIR}/.ci-write-check"
+      else
+        echo "BLOCKER: ${VOID_RPA_MIRROR_DIR} not mounted in job container"
+        echo "  Fix gitlab-runner config.toml volumes (see job comment) and restart runner"
+        ls -la /mnt/user/appdata/ 2>/dev/null || ls -la /mnt/user/ 2>/dev/null || true
+        exit 1
+      fi
   script:
     - |
       set -eu
@@ -576,13 +589,17 @@ rpa-windows:
       # Do NOT declare GitLab `artifacts:` here — upload FATAL 500 masks suite results.
       set +e
       latest=$(ls -1dt artifacts/rpa/*/ 2>/dev/null | head -n1 || true)
-      if [ -n "$latest" ] && [ -d "${VOID_RPA_MIRROR_DIR:-}" ]; then
+      if [ -z "$latest" ]; then
+        echo "Mirror skip: no artifacts/rpa/* pulled (suite canceled/hung before pull)"
+      elif [ ! -d "${VOID_RPA_MIRROR_DIR:-}" ]; then
+        echo "Mirror skip: VOID_RPA_MIRROR_DIR not mounted (${VOID_RPA_MIRROR_DIR:-unset})"
+        ls -la /mnt/user/appdata/ 2>/dev/null || true
+      else
         stamp=$(basename "$latest")
         mkdir -p "${VOID_RPA_MIRROR_DIR}/${stamp}"
         cp -a "${latest}." "${VOID_RPA_MIRROR_DIR}/${stamp}/" 2>/dev/null || true
         echo "Mirrored full PNGs -> ${VOID_RPA_MIRROR_DIR}/${stamp}"
-      else
-        echo "Mirror skip (VOID_RPA_MIRROR_DIR not mounted or no artifacts)"
+        ls -la "${VOID_RPA_MIRROR_DIR}/${stamp}" | head -n 20
       fi
   rules:
     - if: $RPA_AFTER_RELEASE == "1"
@@ -617,9 +634,21 @@ rpa-linux:
   variables:
     VOID_RPA_LINUX_HOST: "10.0.1.114"
     VOID_RPA_LINUX_USER: "rpa-linux"
+    # Same Unraid share mount as rpa-windows (runner config.toml volumes).
     VOID_RPA_MIRROR_DIR: "/mnt/user/appdata/void-rpa-artifacts"
   before_script:
     - pip install --no-cache-dir paramiko
+    - |
+      set -eu
+      if [ -d "${VOID_RPA_MIRROR_DIR}" ]; then
+        echo "Mirror mount OK: ${VOID_RPA_MIRROR_DIR}"
+        touch "${VOID_RPA_MIRROR_DIR}/.ci-write-check" && rm -f "${VOID_RPA_MIRROR_DIR}/.ci-write-check"
+      else
+        echo "BLOCKER: ${VOID_RPA_MIRROR_DIR} not mounted in job container"
+        echo "  Fix gitlab-runner config.toml volumes and restart runner"
+        ls -la /mnt/user/appdata/ 2>/dev/null || ls -la /mnt/user/ 2>/dev/null || true
+        exit 1
+      fi
   script:
     - |
       set -eu
@@ -651,13 +680,17 @@ rpa-linux:
     - |
       set +e
       latest=$(ls -1dt artifacts/rpa/*/ 2>/dev/null | head -n1 || true)
-      if [ -n "$latest" ] && [ -d "${VOID_RPA_MIRROR_DIR:-}" ]; then
+      if [ -z "$latest" ]; then
+        echo "Mirror skip: no artifacts/rpa/* pulled (suite canceled/hung before pull)"
+      elif [ ! -d "${VOID_RPA_MIRROR_DIR:-}" ]; then
+        echo "Mirror skip: VOID_RPA_MIRROR_DIR not mounted (${VOID_RPA_MIRROR_DIR:-unset})"
+        ls -la /mnt/user/appdata/ 2>/dev/null || true
+      else
         stamp=$(basename "$latest")
         mkdir -p "${VOID_RPA_MIRROR_DIR}/linux-${stamp}"
         cp -a "${latest}." "${VOID_RPA_MIRROR_DIR}/linux-${stamp}/" 2>/dev/null || true
         echo "Mirrored -> ${VOID_RPA_MIRROR_DIR}/linux-${stamp}"
-      else
-        echo "Mirror skip (VOID_RPA_MIRROR_DIR not mounted or no artifacts)"
+        ls -la "${VOID_RPA_MIRROR_DIR}/linux-${stamp}" | head -n 20
       fi
   rules:
     - if: $RPA_AFTER_RELEASE == "1"
