@@ -4533,6 +4533,7 @@ version = "0.1.0-alpha.17"
 dependencies = [
  "adblock",
  "dirs 5.0.1",
+ "gtk",
  "once_cell",
  "reqwest 0.12.28",
  "rmp",
@@ -4548,6 +4549,7 @@ dependencies = [
  "toml 0.8.2",
  "url",
  "uuid",
+ "webkit2gtk",
  "webview2-com",
  "windows",
 ]

@@ -110,12 +110,20 @@ pub struct ClearOnExit {
 impl Default for ClearOnExit {
     fn default() -> Self {
         ClearOnExit {
+            // Keep cookies/local_storage off by default so signed-in sessions
+            // (and RPA) survive restarts unless the user opts in.
             cookies: false,
             cache: true,
             history: false,
             local_storage: false,
             downloads_list: false,
         }
+    }
+}
+
+impl ClearOnExit {
+    pub fn any_enabled(&self) -> bool {
+        self.cookies || self.cache || self.history || self.local_storage || self.downloads_list
     }
 }
 

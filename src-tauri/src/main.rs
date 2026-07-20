@@ -5,6 +5,7 @@
 
 mod adblock;
 mod browser;
+mod clear_on_exit;
 mod config;
 mod gpu;
 mod privacy;
@@ -165,6 +166,9 @@ fn main() {
             browser::browser_go_forward,
             browser::get_webview_info,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Void Browser");
+        .build(tauri::generate_context!())
+        .expect("error while building Void Browser")
+        .run(|app_handle, event| {
+            clear_on_exit::on_run_event(app_handle, &event);
+        });
 }

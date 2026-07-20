@@ -444,6 +444,12 @@ async function populateSettingsForm() {
   const clearCache = document.getElementById('clear-cache-toggle');
   if (clearCache) clearCache.checked = !!appConfig.clear_on_exit?.cache;
 
+  const clearCookies = document.getElementById('clear-cookies-toggle');
+  if (clearCookies) clearCookies.checked = !!appConfig.clear_on_exit?.cookies;
+
+  const clearStorage = document.getElementById('clear-storage-toggle');
+  if (clearStorage) clearStorage.checked = !!appConfig.clear_on_exit?.local_storage;
+
   const clearHistory = document.getElementById('clear-history-toggle');
   if (clearHistory) clearHistory.checked = !!appConfig.clear_on_exit?.history;
 
@@ -486,6 +492,8 @@ async function saveSettings() {
   const fpOn = !!document.getElementById('fingerprint-toggle')?.checked;
   const doh = document.getElementById('doh-select')?.value ?? '';
   const clearCache = !!document.getElementById('clear-cache-toggle')?.checked;
+  const clearCookies = !!document.getElementById('clear-cookies-toggle')?.checked;
+  const clearStorage = !!document.getElementById('clear-storage-toggle')?.checked;
   const clearHistory = !!document.getElementById('clear-history-toggle')?.checked;
 
   const next = {
@@ -510,6 +518,8 @@ async function saveSettings() {
     clear_on_exit: {
       ...(base.clear_on_exit || {}),
       cache: clearCache,
+      cookies: clearCookies,
+      local_storage: clearStorage,
       history: clearHistory,
     },
   };

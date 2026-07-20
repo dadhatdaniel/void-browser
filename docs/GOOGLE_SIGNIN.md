@@ -13,6 +13,11 @@ On Windows, Void also sets a **persistent** WebView2 profile directory:
 
 (override with `WEBVIEW2_USER_DATA_FOLDER`) so cookies/sessions survive restarts.
 
+`clear_on_exit` (Settings → Privacy) can wipe cookies/cache/storage/history on quit
+via WebView2 `ClearBrowsingData`. Defaults keep **cookies** and **local storage** off
+so Google sessions persist. Set `VOID_DISABLE_CLEAR_ON_EXIT=1` (RPA does this) to
+skip clearing entirely.
+
 ## Remaining Google / WebView2 limitations
 
 | Issue | Severity | Notes |

@@ -37,6 +37,11 @@ windows = { version = "0.61", features = [
   "Win32_UI_WindowsAndMessaging",
 ] }
 
+# Selective WebsiteDataManager::clear for clear_on_exit (match wry/tauri).
+[target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))'.dependencies]
+webkit2gtk = { version = "2.0.1", default-features = false, features = ["v2_40"] }
+gtk = "0.18"
+
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
