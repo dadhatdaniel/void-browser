@@ -11,8 +11,9 @@ flowchart TD
   E --> F["sync-website-releases-to-gitlab"]
   F --> G["Commit website/releases.json on main"]
   G --> H["GitLab deploy-site"]
-  F --> I["POST pipeline RPA_AFTER_RELEASE=1"]
-  I --> J["GitLab rpa-windows job"]
+  G --> J["GitLab rpa-windows job"]
+  F --> I["POST RPA_AFTER_RELEASE only if no commit"]
+  I --> J
   J --> K["WinRM to rpa-win 10.0.0.28"]
   K --> L["git sync + download exe + full RPA"]
   L --> M["auto_update scenario"]
@@ -28,22 +29,23 @@ flowchart TD
 | `latest.json` on GitHub Releases | Release job `generate-updater-manifest.sh` |
 | Website `releases.json` | `scripts/sync-website-releases-to-gitlab.sh` commits to GitLab `main` |
 | Site deploy | `deploy-site` on `website/**` changes |
-| RPA on rpa-win (incl. `auto_update`) | Sync script POSTs GitLab pipeline `RPA_AFTER_RELEASE=1` → job `rpa-windows` → `scripts/ci/rpa-winrm.py` |
+| RPA on rpa-win (incl. `auto_update`) | Push with `website/releases.json` changes, **or** API `RPA_AFTER_RELEASE=1` if already up to date |
 | GHA hosted RPA smoke | `.github/workflows/rpa-windows.yml` on `release: published` |
 | rpa-win repo refresh | `sync-rpa-win-repo` on each `main` push |
 
 ## Runner notes
 
-GitLab Unraid runners currently process ~1 job at a time. API pipelines with \RPA_AFTER_RELEASE=1\ can be **auto-canceled** if a newer \main\ push arrives while queued — that is why a successful \website/releases.json\ commit is preferred (same pipeline as deploy-site).
+GitLab Unraid runners process about one job at a time. API pipelines with `RPA_AFTER_RELEASE=1` can be auto-canceled if a newer `main` push arrives while queued — that is why a successful `website/releases.json` commit is preferred (same pipeline as deploy-site).
 
 ## Still manual / ops
 
 | Item | Why |
 |------|-----|
 | Interactive desktop on rpa-win | Log in once via VNC after reboot (`http://10.0.0.10:5702/`) — UIA needs Active session |
-| `VOID_RPA_WIN_PASS` CI variable | Must exist in GitLab (masked); never commit |
-| VirusTotal scan | Still manual play (`virus-scan`) unless key + auto rules added later |
-| First-time TrustedHosts / WinRM on clients | One-time LAN setup |
+| `VOID_RPA_WIN_PASS` | Set in GitLab CI (short passwords cannot be masked — rotate to 8+ chars) |
+| VirusTotal scan | Still manual play (`virus-scan`) |
+| Runner queue | RPA waits behind lint/clippy when the shared runner is busy |
+| Local WinRM TrustedHosts | One-time for `rpa-remote-run.ps1` on DANIELRIG |
 
 ## Manual test (no new tag)
 
