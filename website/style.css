@@ -704,8 +704,20 @@ nav.scrolled {
 }
 
 .download-icon {
-  font-size: 36px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 40px;
   margin-bottom: 12px;
+  color: var(--text-dim);
+}
+
+.download-icon svg {
+  display: block;
+}
+
+.download-card:hover .download-icon {
+  color: var(--text);
 }
 
 .download-card h3 {
@@ -1011,6 +1023,21 @@ footer {
 }
 
 .footer-links a:hover { color: var(--text); }
+
+.footer-tip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.footer-tip .tip-icon {
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.footer-tip:hover .tip-icon {
+  opacity: 1;
+}
 
 .footer-privacy {
   text-align: center;
