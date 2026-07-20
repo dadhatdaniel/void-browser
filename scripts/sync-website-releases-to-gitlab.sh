@@ -24,6 +24,20 @@ SRC="${RELEASES_JSON:-artifacts/releases.json}"
 BRANCH="${BRANCH:-main}"
 FILE_PATH="website/releases.json"
 SKIP_RPA_TRIGGER="${SKIP_RPA_TRIGGER:-0}"
+# GitHub-hosted runners cannot reach private LAN GitLab (e.g. 10.0.0.10).
+# Keep timeouts short so a missing tunnel fails in seconds, not minutes.
+CURL_OPTS=(--connect-timeout 15 --max-time 45 -sS)
+
+# Soft-exit when GitLab is unreachable from this runner. The GitHub Release
+# already published; website sync falls back to GitLab job
+# sync-releases-from-github (or a manual commit on main).
+soft_unreachable() {
+  local why="$1"
+  echo "[sync] WARN: GitLab unreachable from this runner ($why)" >&2
+  echo "[sync] GitHub Release for $TAG is still valid — do NOT treat as a build failure." >&2
+  echo "[sync] Fallback: run GitLab job sync-releases-from-github, or commit website/releases.json on main." >&2
+  exit 0
+}
 
 trigger_post_release_pipeline() {
   if [[ "$SKIP_RPA_TRIGGER" = "1" ]]; then
@@ -42,7 +56,7 @@ trigger_post_release_pipeline() {
     return 0
   fi
   echo "[sync] Triggering GitLab pipeline (RPA_AFTER_RELEASE=1 RELEASE_TAG=$TAG) ..."
-  code=$(curl -sS -o /tmp/gl-pipe.json -w '%{http_code}' \
+  code=$(curl "${CURL_OPTS[@]}" -o /tmp/gl-pipe.json -w '%{http_code}' \
     -X POST \
     -H "PRIVATE-TOKEN: $TOKEN" \
     -H "Content-Type: application/json" \
@@ -60,6 +74,10 @@ trigger_post_release_pipeline() {
     "$HOST/api/v4/projects/$PROJECT/pipeline" || true)
   echo "[sync] pipeline trigger HTTP $code"
   cat /tmp/gl-pipe.json 2>/dev/null || true
+  if [[ "$code" = "000" ]]; then
+    echo "[sync] WARN: could not reach GitLab to trigger RPA (HTTP 000)" >&2
+    return 0
+  fi
   if [[ "$code" != "201" && "$code" != "200" ]]; then
     echo "[sync] WARN: failed to trigger post-release pipeline (HTTP $code)" >&2
     return 0
@@ -88,9 +106,13 @@ fi
 API="$HOST/api/v4/projects/$PROJECT/repository/files/$(printf '%s' "$FILE_PATH" | sed 's|/|%2F|g')"
 
 echo "[sync] Fetching current $FILE_PATH on $BRANCH ..."
-HTTP=$(curl -sS -o /tmp/gl-file.json -w '%{http_code}' \
+HTTP=$(curl "${CURL_OPTS[@]}" -o /tmp/gl-file.json -w '%{http_code}' \
   -H "PRIVATE-TOKEN: $TOKEN" \
   "$API?ref=$BRANCH" || true)
+
+if [[ "$HTTP" = "000" ]]; then
+  soft_unreachable "connect/timeout to $HOST"
+fi
 
 COMMIT_MSG="chore(website): sync releases.json for ${TAG}
 
@@ -108,7 +130,7 @@ if [[ "$HTTP" = "200" ]]; then
     fi
   fi
   echo "[sync] Updating $FILE_PATH (HTTP 200, sha hint=${OLD_SHA:-n/a}) ..."
-  code=$(curl -sS -o /tmp/gl-put.json -w '%{http_code}' \
+  code=$(curl "${CURL_OPTS[@]}" -o /tmp/gl-put.json -w '%{http_code}' \
     -X PUT \
     -H "PRIVATE-TOKEN: $TOKEN" \
     -H "Content-Type: application/json" \
@@ -117,10 +139,10 @@ if [[ "$HTTP" = "200" ]]; then
       --arg content "$(cat "$SRC")" \
       --arg msg "$COMMIT_MSG" \
       '{branch:$branch, content:$content, commit_message:$msg, encoding:"text"}')" \
-    "$API")
+    "$API" || true)
 else
   echo "[sync] Creating $FILE_PATH (HTTP $HTTP) ..."
-  code=$(curl -sS -o /tmp/gl-put.json -w '%{http_code}' \
+  code=$(curl "${CURL_OPTS[@]}" -o /tmp/gl-put.json -w '%{http_code}' \
     -X POST \
     -H "PRIVATE-TOKEN: $TOKEN" \
     -H "Content-Type: application/json" \
@@ -129,13 +151,17 @@ else
       --arg content "$(cat "$SRC")" \
       --arg msg "$COMMIT_MSG" \
       '{branch:$branch, content:$content, commit_message:$msg, encoding:"text"}')" \
-    "$API")
+    "$API" || true)
 fi
 
 echo "[sync] GitLab API HTTP $code"
 cat /tmp/gl-put.json 2>/dev/null || true
+if [[ "$code" = "000" ]]; then
+  soft_unreachable "write to $HOST failed (HTTP 000)"
+fi
 if [[ "$code" != "200" && "$code" != "201" ]]; then
-  echo "[sync] FAILED to write $FILE_PATH" >&2
+  # Auth/permission errors are real failures when GitLab is reachable.
+  echo "[sync] FAILED to write $FILE_PATH (HTTP $code)" >&2
   DID_COMMIT=0
   trigger_post_release_pipeline
   exit 1

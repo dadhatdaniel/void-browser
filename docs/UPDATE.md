@@ -47,8 +47,11 @@ Previously updated by hand before `deploy-site`. Now:
 1. **Primary:** GitHub `release` job generates `artifacts/releases.json` and, when
    Environment secret `GITLAB_TOKEN` is set, commits `website/releases.json` to
    GitLab `main` (`scripts/sync-website-releases-to-gitlab.sh`) so deploy-site runs.
+   GitHub-hosted runners **cannot** reach private LAN hosts (`10.0.0.10`); the sync
+   step soft-fails in that case and does **not** fail the Build & Release workflow.
 2. **Fallback:** GitLab job `sync-releases-from-github` (schedule / manual /
-   `SYNC_RELEASES=1` pipeline) polls GitHub and commits the same file.
+   `SYNC_RELEASES=1` pipeline) polls GitHub and commits the same file. Use this
+   when Actions cannot reach GitLab (normal for LAN-only GitLab).
 
 ## Required GitHub secrets (user action)
 

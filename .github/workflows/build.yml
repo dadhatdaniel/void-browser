@@ -475,7 +475,10 @@ jobs:
           # GitHub /releases/latest ignores prereleases; keep alpha in version string only.
           prerelease: false
 
+      # Soft-fails when GitHub-hosted runners cannot reach private LAN GitLab.
+      # Release assets are already published; website sync has a GitLab fallback.
       - name: Sync website/releases.json to GitLab
+        continue-on-error: true
         env:
           TAG: ${{ github.ref_name }}
           GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
