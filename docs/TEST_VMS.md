@@ -9,6 +9,7 @@ Inventory date: **2026-07-20** (host `lightfootserver` / `10.0.0.10`).
 | **2026-07-18** | Docs only — no Void VMs created. |
 | **2026-07-20 (earlier)** | Created empty-disk installer VMs (`void-test-linux` + a Win11 ISO `void-rpa-windows`). |
 | **2026-07-20 (this update)** | **Cloned** configured Windows guest `fresh-configured` → **`void-rpa-windows`**. GPU passthrough stripped; VNC added. Installer Windows VM renamed to `void-rpa-windows-scratch` (shut off). `void-test-linux` kept. |
+| **2026-07-20 (later)** | Disabled **julia** autologin on `void-rpa-windows` (see Guest access). VM now stops at login screen. |
 
 **Why clone `fresh-configured` instead of Win11 OOBE?**  
 User already has a configured Windows disk. Cloning avoids a full reinstall/license OOBE. Original stays shut off with GPU passthrough intact for personal use.
@@ -34,12 +35,34 @@ User already has a configured Windows disk. Cloning avoids a full reinstall/lice
 
 Do **not** start `fresh-configured` / `juliavm` / `Windows 11` while `void-rpa-windows` runs (they share the same physical GPU if those GPU VMs are started — clone itself has **no** GPU).
 
+## Guest access (hostnames / usernames only — **no passwords in git**)
+
+Passwords live only on the Unraid host: `/root/void-rpa-vm-credentials.txt` (mode 600). Do not commit them.
+
+| Libvirt name | Guest hostname | Guest IP (br0) | Login user | Notes |
+|--------------|----------------|----------------|------------|-------|
+| **`void-rpa-windows`** | `JULIARIG` (plan: `rpa-win-vm`) | **`10.0.0.28`** | **`rpa-win`** | WinRM `5985`, RDP `3389`. VNC `http://10.0.0.10:5702/`. |
+| **`void-test-linux`** | `rpa-linux-vm` | **`10.0.1.114`** | **`rpa-linux`** | Ping OK; TCP/22 refused as of 2026-07-20 (OpenSSH not listening yet). VNC `http://10.0.0.10:5701/`. |
+
+### Windows: julia autologin removed (2026-07-20)
+
+**Found / removed:**
+
+1. **Winlogon AutoAdminLogon** — `AutoAdminLogon=1`, `DefaultUserName=julia`, `DefaultDomainName=JULIARIG`, `ForceAutoLogon=1` → set autologon off and cleared default user/domain/password values.
+2. **Automatic Restart Sign-On (ARSO)** — after reboot while julia was logged in, Windows signed her back in even with AutoAdminLogon off → set `DisableAutomaticRestartSignOn=1`.
+3. **Passwordless device mode** — `DevicePasswordLessBuildVersion=2` → set to `0` (classic password prompt / netplwiz behavior).
+4. **Blank-password julia account** — `Password required: No` was the remaining cause of console auto-sign-in → set a password, `/passwordreq:yes`, and **`net user julia /active:no`** (account disabled). Temp julia password note on host only: `/root/void-rpa-windows-julia-temp-password.txt`.
+
+**Verified:** after hard reset, `query user` → `No User exists for *` (login screen, no interactive session).
+
+**How to log in now:** open VNC → sign in as **`rpa-win`**. Then delete or re-enable `julia` yourself if desired (`net user julia /active:yes` only if you still need that profile).
+
 ## VMs (`virsh list --all`)
 
 | Name | State | vCPU | RAM | Role |
 |------|-------|------|-----|------|
-| **`void-rpa-windows`** | **running** | 8 | 16 GiB | **Clone of `fresh-configured`** — Void RPA / WebView2 (VNC, no GPU) |
-| **`void-test-linux`** | **running** | 4 | 8 GiB | Ubuntu ISO → cargo/WebKit tests |
+| **`void-rpa-windows`** | **running** | 8 | 16 GiB | **Clone of `fresh-configured`** — Void RPA / WebView2 (VNC, no GPU); log in as `rpa-win` |
+| **`void-test-linux`** | **running** | 4 | 8 GiB | Ubuntu guest `rpa-linux-vm` / user `rpa-linux` |
 | `ha` | running | 4 | 4 GiB | Home Assistant — **do not touch** |
 | `fresh-configured` | shut off | 12 | 24 GiB | **Original** GPU-passthrough Windows — **untouched** |
 | `void-rpa-windows-scratch` | shut off | 4 | 8 GiB | Former empty Win11 installer VM (safe to delete later) |
@@ -75,7 +98,7 @@ virsh vncdisplay void-rpa-windows   # e.g. :2 → 5902 / 5702
 
 1. Open Unraid: `http://10.0.0.10` → **VMs**.
 2. Click **`void-rpa-windows`** → **VNC** (or open `http://10.0.0.10:5702/` directly).
-3. Log into the existing Windows session (same guest as `fresh-configured`, new MAC / no GPU — display is QXL/VNC).
+3. At the **login screen**, sign in as **`rpa-win`** (julia autologin disabled; julia account is inactive).
 4. If Windows complains about hardware change / reactivation, use your license/account (clone may trigger reactivation).
 5. Install/run Void Browser + `.\scripts\run-rpa-windows.ps1` on the guest.
 
@@ -109,9 +132,9 @@ virsh undefine void-rpa-windows-scratch --nvram
 
 ## `void-test-linux` next steps
 
-1. VNC: `http://10.0.0.10:5701/`
-2. Finish Ubuntu install from attached ISO.
-3. OpenSSH + Rust + WebKitGTK deps → `cargo test --manifest-path src-tauri/Cargo.toml`
+1. VNC: `http://10.0.0.10:5701/` (guest IP `10.0.1.114`, user `rpa-linux`).
+2. Enable OpenSSH if needed (`sshd` was not listening on 2026-07-20 smoke check).
+3. Rust + WebKitGTK deps → `cargo test --manifest-path src-tauri/Cargo.toml`
 
 ## Windows license
 
