@@ -98,24 +98,46 @@ def ensure_desktop_session(client) -> None:
 
 
 def sync_repo(client, remote_root: str) -> None:
+    """Fetch latest main onto the VM checkout.
+
+    The guest tree is often a non-empty harness dir without ``.git`` (push_harness
+    residue). ``git clone`` into that path fails with "already exists and is not
+    an empty directory" — use init+fetch (or fetch into an existing repo) instead.
+    """
     print(f"[rpa-linux] git sync on VM: {remote_root}", flush=True)
     code, out, err = run(
         client,
         f"""
-set -e
+set -eu
 root={remote_root!r}
+primary='http://10.0.0.10:8929/lightfootcloud/void-browser.git'
+fallback='https://github.com/dadhatdaniel/void-browser.git'
+export GIT_TERMINAL_PROMPT=0
 mkdir -p "$root"
 cd "$root"
-export GIT_TERMINAL_PROMPT=0
+
+fetch_main() {{
+  if ! git fetch --depth 1 origin main; then
+    git remote set-url origin "$fallback"
+    git fetch --depth 1 origin main
+  fi
+}}
+
 if [ ! -d .git ]; then
-  git clone --depth 1 http://10.0.0.10:8929/lightfootcloud/void-browser.git "$root" || \\
-    git clone --depth 1 https://github.com/dadhatdaniel/void-browser.git "$root"
+  echo "[rpa-linux] no .git — init + shallow fetch (avoid clone into non-empty dir)"
+  git init
+  git remote remove origin 2>/dev/null || true
+  git remote add origin "$primary"
+  fetch_main
+  git checkout -f -B main FETCH_HEAD
+else
+  git remote remove origin 2>/dev/null || true
+  git remote add origin "$primary"
+  fetch_main
+  git checkout -f main 2>/dev/null || git checkout -f -B main FETCH_HEAD
+  git reset --hard origin/main 2>/dev/null || git reset --hard FETCH_HEAD
 fi
-cd "$root"
-git fetch --depth 1 origin main 2>/dev/null || git fetch --depth 1 origin 2>/dev/null || true
-git checkout -f main 2>/dev/null || git checkout -f master 2>/dev/null || true
-git reset --hard origin/main 2>/dev/null || git reset --hard FETCH_HEAD 2>/dev/null || true
-git rev-parse --short HEAD || true
+git rev-parse --short HEAD
 echo SYNC_OK
 """,
         timeout=300,
