@@ -253,7 +253,7 @@ fn pump_webview2_messages_briefly() {
 fn clear_webkit(webview: &tauri::Webview, flags: &ClearOnExit) -> Result<(), String> {
     use gtk::gio::Cancellable;
     use gtk::glib::TimeSpan;
-    use webkit2gtk::{WebViewExt, WebsiteDataManagerExt, WebsiteDataTypes};
+    use webkit2gtk::{WebContextExt, WebViewExt, WebsiteDataManagerExtManual, WebsiteDataTypes};
 
     let mut types = WebsiteDataTypes::empty();
     if flags.cookies {
@@ -316,7 +316,6 @@ fn clear_webkit(webview: &tauri::Webview, flags: &ClearOnExit) -> Result<(), Str
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::config::ClearOnExit;
 
     #[test]
@@ -340,7 +339,7 @@ mod tests {
             local_storage: false,
             downloads_list: false,
         };
-        let kinds = browsing_data_kinds(&flags);
+        let kinds = super::browsing_data_kinds(&flags);
         assert!(kinds.0 & COREWEBVIEW2_BROWSING_DATA_KINDS_COOKIES.0 != 0);
         assert!(kinds.0 & COREWEBVIEW2_BROWSING_DATA_KINDS_DISK_CACHE.0 != 0);
     }
