@@ -328,6 +328,9 @@ mod tests {
         // Do not mutate process env in unit tests — just exercise the helper shape.
         let _ = software_preferred(PerformanceMode::Performance);
         let _ = software_preferred(PerformanceMode::Efficiency);
-        assert!(matches!(PerformanceMode::default(), PerformanceMode::Performance));
+        assert!(matches!(
+            PerformanceMode::default(),
+            PerformanceMode::Performance
+        ));
     }
 }
