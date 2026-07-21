@@ -64,6 +64,13 @@ body {
   -webkit-user-select: none;
 }
 
+/* Linux/WebKitGTK: if the chrome child webview allocation is taller than the
+   toolbar strip, an opaque body fill paints a solid black band over the page.
+   Keep the shell transparent while native content webviews are showing. */
+body.browsing {
+  background: transparent;
+}
+
 /* ── Chrome (custom titlebar + tabs + nav) ─────── */
 
 #chrome {

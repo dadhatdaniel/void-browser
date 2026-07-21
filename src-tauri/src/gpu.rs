@@ -49,7 +49,7 @@ fn linux_gpu_needs_software() -> bool {
             let name = line.split_whitespace().next().unwrap_or("");
             if matches!(
                 name,
-                "qxl" | "bochs_drm" | "cirrus" | "vboxvideo" | "vmwgfx"
+                "qxl" | "bochs_drm" | "cirrus" | "vboxvideo" | "vmwgfx" | "virtio_gpu"
             ) {
                 return true;
             }

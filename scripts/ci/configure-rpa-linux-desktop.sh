@@ -56,10 +56,13 @@ if [[ -S "/run/user/$(id -u)/bus" ]]; then
   pkill -f gnome-initial-setup || true
 fi
 
+# DRI access for WebKitGTK (without video/render, DRI3 fails → black upper webview band)
+$SUDO usermod -aG video,render "$USER_NAME" || true
+
 # Tools for smoke RPA
 if command -v apt-get >/dev/null 2>&1; then
   $SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-    xdotool wmctrl scrot libfuse2t64 curl git 2>/dev/null \
+    xdotool wmctrl scrot libfuse2t64 curl git mesa-utils 2>/dev/null \
     || $SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
       xdotool wmctrl scrot libfuse2 curl git || true
 fi

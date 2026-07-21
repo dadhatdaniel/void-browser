@@ -270,12 +270,23 @@ Default scenarios (Windows-parity names):
 
 **Linux-impossible / limited:** real AT-SPI context menus, reliable Install & Relaunch button clicks, WebView2-style Google challenge classification. Omnibox focus uses click-chrome + Ctrl+L (not UIA Edit).
 
-**QEMU/QXL guests:** `void-test-linux` uses QXL (`vram=64MB`). WebKit HW compositing often paints a **solid black upper half** of the webview (chrome OK, bottom tiles may still draw). Mitigation (default in `run-rpa-linux.sh` / `rpa-ssh.py` / `runner_linux._launch_env`):
+**QEMU guests (QXL / virtio-gpu without virgl):** WebKit HW compositing can paint a
+**solid black upper half** of the webview. Root causes observed on `void-test-linux`:
+
+1. Opaque chrome `body` fill when the shell child webview allocation is taller than
+   the toolbar strip (fixed: `body.browsing { background: transparent }` + GTK
+   `set_size_request` / raise).
+2. `WEBKIT_FORCE_COMPOSITING_MODE` + broken DRI3 (fixed: never FORCE; auto soft-render
+   on qxl/virtio_gpu/no-render-node; `WEBKIT_DISABLE_DMABUF_RENDERER=1`).
+3. Guest user missing `video`/`render` groups (fixed in `configure-rpa-linux-desktop.sh`).
+
+VM video is now **virtio** (+ optional egl-headless). Soft-render env still default in
+`run-rpa-linux.sh` / `rpa-ssh.py` / `runner_linux._launch_env`:
 
 - `VOID_SOFTWARE_RENDERING=1` → binary forces `WEBKIT_DISABLE_COMPOSITING_MODE=1`
 - `LIBGL_ALWAYS_SOFTWARE=1`, `GALLIUM_DRIVER=llvmpipe`, `GSK_RENDERER=cairo`
 
-Linux RPA Pillow checks **fail** (never silent-PASS) on uniform blank, low `content_mean` / mostly-black frames, **and** the top-half black paint glitch. Apport dialogs are disabled in the SSH wrapper. Suite self-heal reboots once if the X framebuffer is solid black after a WebKit crash. Optional: bump QXL `vram`/`ram` via libvirt if tiles still glitch under software GL.
+Linux RPA Pillow checks **fail** (never silent-PASS) on uniform blank, low `content_mean` / mostly-black frames, **and** the top-half black paint glitch. Apport dialogs are disabled in the SSH wrapper. Suite self-heal reboots once if the X framebuffer is solid black after a WebKit crash.
 
 Requires **`VOID_RPA_LINUX_PASS`**. Desktop: GDM autologin — see `scripts/ci/configure-rpa-linux-desktop.sh`.
 
