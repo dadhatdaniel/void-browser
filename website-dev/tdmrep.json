@@ -1,0 +1,14 @@
+{
+  "version": "1.0",
+  "name": "Void Browser",
+  "url": "https://void.lightfoot.cloud",
+  "policies": [
+    {
+      "assigner": "https://lightfoot.cloud",
+      "type": "tdm",
+      "status": "not-permitted",
+      "target": "https://void.lightfoot.cloud/*",
+      "description": "No text or data mining permitted. Content is not licensed for AI training."
+    }
+  ]
+}

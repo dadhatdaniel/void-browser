@@ -1,0 +1,19 @@
+# ai.txt — AI Training Opt-Out
+# https://site.spawning.ai/spawning-ai-txt
+# This file declares that NO content on this site is available
+# for AI/ML training, scraping, or data mining.
+
+User-Agent: *
+Disallow: AI Training
+Disallow: AI Scraping
+Disallow: AI Data Mining
+Disallow: AI Image Training
+Disallow: AI Text Training
+Disallow: AI Code Training
+Disallow: Embedding
+Disallow: Indexing for AI
+Disallow: Summarization
+
+# Contact for licensing inquiries
+Contact: https://lightfoot.cloud
+Preference: opt-out
