@@ -254,23 +254,23 @@ class RpaSession:
         """
         Click the chrome address bar by geometry.
 
-        Outer window_rect includes the Win32 title bar (~30px), so a single
-        client-relative guess often hits the tab strip. Try several Y offsets.
+        Outer window_rect includes the Win32 title bar (~30px). Prefer a single
+        best-guess Y; only fan out across offsets when explicitly requested.
         """
         left, top, right, bottom = self.window_rect()
         w = right - left
         h = bottom - top
         if w < 200 or h < 200:
             return False
-        # Title bar ~30 + tab strip ~36 + URL row mid ≈ 70–110 from outer top.
-        offsets = y_offsets or [78, 88, 96, 70, 108, 64, 120]
+        # Title bar ~30 + tab strip ~36 + URL row mid ≈ 88 from outer top.
+        offsets = y_offsets or [88]
         abs_x = left + w // 2
         try:
             from pywinauto import mouse
 
             for y_off in offsets:
                 mouse.click(coords=(abs_x, top + int(y_off)))
-                time.sleep(0.12)
+                time.sleep(0.15)
             return True
         except Exception:  # noqa: BLE001
             try:
@@ -303,23 +303,29 @@ class RpaSession:
         # always Ctrl+L — click alone often hits the tab strip and used to skip ^l.
         self._click_url_bar_region()
         self.type_keys("^l")
-        time.sleep(0.3)
+        time.sleep(0.25)
         self.type_keys("^a")
-        time.sleep(0.12)
+        time.sleep(0.1)
 
     def _nav_reached_host(self, host: str) -> bool:
         if not host:
             return True
         needle = host.split(".")[0]
-        url_txt = self.url_bar_text().lower()
+        # Prefer window title — clipboard URL reads can hang OpenClipboard under WinRM.
         title = self.window_title().lower()
-        if host in url_txt or needle in url_txt:
-            return True
         if needle in title and "new tab" not in title:
+            return True
+        if host in title:
+            return True
+        try:
+            url_txt = self.url_bar_text().lower()
+        except Exception:  # noqa: BLE001
+            url_txt = ""
+        if host in url_txt or needle in url_txt:
             return True
         return False
 
-    def navigate(self, url: str, settle: float = 2.5, retries: int = 3) -> None:
+    def navigate(self, url: str, settle: float = 2.5, retries: int = 2) -> None:
         """
         Focus URL bar, type URL, Enter. Retries when the address bar never picks up
         the host (common when a PowerShell console stole focus mid-suite).
@@ -348,18 +354,18 @@ class RpaSession:
             else:
                 self.focus_url_bar()
                 self.type_keys("^a")
-                time.sleep(0.12)
-                self.type_keys("{BACKSPACE}")
                 time.sleep(0.1)
+                self.type_keys("{BACKSPACE}")
+                time.sleep(0.08)
             # Escape pywinauto modifier chars in the URL payload.
             safe = url.replace("+", "{+}").replace("^", "{^}").replace("%", "{%}")
-            self.type_keys(safe, pause=0.03)
+            self.type_keys(safe, pause=0.02)
             self.type_keys("{ENTER}")
             time.sleep(settle)
             if self._nav_reached_host(host):
                 return
             if attempt + 1 < attempts:
-                time.sleep(0.6)
+                time.sleep(0.5)
 
     def open_settings(self) -> None:
         self.type_keys("^,")
