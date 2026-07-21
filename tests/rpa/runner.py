@@ -214,6 +214,19 @@ class RpaSession:
         self._shot_i += 1
         name = f"{self._shot_i:02d}_{label}.png"
         path = self.out_dir / name
+        # Prefer a desktop grab of the window bbox so child WebView2 HWNDs
+        # (content area while browsing) are included. capture_as_image() often
+        # only paints the chrome webview strip.
+        try:
+            from PIL import ImageGrab
+
+            left, top, right, bottom = self.window_rect()
+            if right - left >= 80 and bottom - top >= 80:
+                img = ImageGrab.grab(bbox=(left, top, right, bottom))
+                img.save(str(path))
+                return name
+        except Exception:  # noqa: BLE001
+            pass
         try:
             img = self.win.capture_as_image()
             img.save(str(path))
@@ -237,54 +250,80 @@ class RpaSession:
             pass
         time.sleep(0.25)
 
-    def _click_url_bar_region(self) -> bool:
+    def _click_url_bar_region(self, y_offsets: Optional[list[int]] = None) -> bool:
         """
         Click the chrome address bar by geometry.
 
-        Ctrl+L only works when the Tauri UI document has focus. After a page load,
-        WebView2 usually owns keyboard focus, so ^l never reaches app.js — which is
-        why RPA was stuck on New Tab while blank-checks still passed.
+        Outer window_rect includes the Win32 title bar (~30px), so a single
+        client-relative guess often hits the tab strip. Try several Y offsets.
         """
         left, top, right, bottom = self.window_rect()
         w = right - left
         h = bottom - top
         if w < 200 or h < 200:
             return False
-        # Tab strip ~36px, toolbar/url row centered ~55–75px from top of client area.
+        # Title bar ~30 + tab strip ~36 + URL row mid ≈ 70–110 from outer top.
+        offsets = y_offsets or [78, 88, 96, 70, 108, 64, 120]
         abs_x = left + w // 2
-        abs_y = top + max(52, min(90, int(h * 0.07)))
         try:
             from pywinauto import mouse
 
-            mouse.click(coords=(abs_x, abs_y))
-            time.sleep(0.25)
+            for y_off in offsets:
+                mouse.click(coords=(abs_x, top + int(y_off)))
+                time.sleep(0.12)
             return True
         except Exception:  # noqa: BLE001
             try:
-                # Fallback: relative click on the window wrapper.
-                self.win.click_input(coords=(w // 2, max(52, min(90, int(h * 0.07)))))
+                self.win.click_input(coords=(w // 2, 88))
                 time.sleep(0.25)
                 return True
             except Exception:  # noqa: BLE001
                 return False
 
+    def _click_newtab_search(self) -> bool:
+        """Click the centered new-tab DuckDuckGo search field (fallback navigate path)."""
+        left, top, right, bottom = self.window_rect()
+        w = right - left
+        h = bottom - top
+        if w < 200 or h < 200:
+            return False
+        try:
+            from pywinauto import mouse
+
+            mouse.click(coords=(left + w // 2, top + int(h * 0.48)))
+            time.sleep(0.25)
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
     def focus_url_bar(self) -> None:
         self.ensure_foreground()
-        # Prefer a real click into the URL field (works even when WebView2 has focus).
-        clicked = self._click_url_bar_region()
-        if clicked:
-            # Select-all so the next type_keys replaces any leftover text.
-            self.type_keys("^a")
-            time.sleep(0.12)
-            return
-        # Last resort: Ctrl+L (only works if chrome UI already has focus).
+        # Ctrl+L focuses #url-bar in app.js when the chrome document has key focus.
+        # Geometry click first (needed after content WebView2 steals focus), then
+        # always Ctrl+L — click alone often hits the tab strip and used to skip ^l.
+        self._click_url_bar_region()
         self.type_keys("^l")
-        time.sleep(0.35)
+        time.sleep(0.3)
+        self.type_keys("^a")
+        time.sleep(0.12)
 
-    def navigate(self, url: str, settle: float = 2.5, retries: int = 2) -> None:
+    def _nav_reached_host(self, host: str) -> bool:
+        if not host:
+            return True
+        needle = host.split(".")[0]
+        url_txt = self.url_bar_text().lower()
+        title = self.window_title().lower()
+        if host in url_txt or needle in url_txt:
+            return True
+        if needle in title and "new tab" not in title:
+            return True
+        return False
+
+    def navigate(self, url: str, settle: float = 2.5, retries: int = 3) -> None:
         """
         Focus URL bar, type URL, Enter. Retries when the address bar never picks up
         the host (common when a PowerShell console stole focus mid-suite).
+        Falls back to the new-tab search field when URL-bar focus keeps missing.
         """
         host = ""
         try:
@@ -299,22 +338,25 @@ class RpaSession:
             except Exception:  # noqa: BLE001
                 pass
             self.ensure_foreground()
-            self.focus_url_bar()
-            self.type_keys("^a")
-            time.sleep(0.12)
-            self.type_keys("{BACKSPACE}")
-            time.sleep(0.1)
-            self.type_keys(url, pause=0.02)
+            if attempt >= 2:
+                # Last attempts: type into new-tab search (calls navigate() in app.js).
+                self._click_newtab_search()
+                self.type_keys("^a")
+                time.sleep(0.1)
+                self.type_keys("{BACKSPACE}")
+                time.sleep(0.08)
+            else:
+                self.focus_url_bar()
+                self.type_keys("^a")
+                time.sleep(0.12)
+                self.type_keys("{BACKSPACE}")
+                time.sleep(0.1)
+            # Escape pywinauto modifier chars in the URL payload.
+            safe = url.replace("+", "{+}").replace("^", "{^}").replace("%", "{%}")
+            self.type_keys(safe, pause=0.03)
             self.type_keys("{ENTER}")
             time.sleep(settle)
-            if not host:
-                return
-            url_txt = self.url_bar_text().lower()
-            title = self.window_title().lower()
-            if host in url_txt or host.split(".")[0] in url_txt:
-                return
-            # Title often updates before clipboard URL read works.
-            if host.split(".")[0] in title and "new tab" not in title:
+            if self._nav_reached_host(host):
                 return
             if attempt + 1 < attempts:
                 time.sleep(0.6)
@@ -439,26 +481,48 @@ def analyze_content_region(image_path: Path) -> dict[str, Any]:
     blank = False
     reason = "ok"
     # Dark themed pages (Void new-tab) are mostly black but have branding variance.
+    # Downsampling the full content crop to 96x72 flattens sparse white logo pixels
+    # into mean≈11 / black≈0.95 — do not treat that as a dead WebView.
+    brand_left = int(crop.width * 0.18)
+    brand_right = int(crop.width * 0.82)
+    brand_top = int(crop.height * 0.12)
+    brand_bot = int(crop.height * 0.55)
+    brand = crop.crop((brand_left, brand_top, brand_right, brand_bot)).resize((64, 40))
+    brand_stat = ImageStat.Stat(brand.convert("L"))
+    brand_std = float(brand_stat.stddev[0]) if brand_stat.stddev else 0.0
+    brand_mean = float(brand_stat.mean[0]) if brand_stat.mean else 0.0
+    dark_branded = (
+        mean < 40.0
+        and brand_std >= 8.0
+        and brand_mean >= 8.0
+        and stddev >= 4.0
+    )
+
     if bright_ratio >= 0.92 and stddev < 18.0:
         blank = True
         reason = f"near-white content (bright={bright_ratio:.2f} std={stddev:.1f})"
     elif stddev < 5.0 and mean > 230:
         blank = True
         reason = f"uniform bright (mean={mean:.1f} std={stddev:.1f})"
-    elif stddev < 4.0 and mean < 15:
+    elif stddev < 4.0 and mean < 15 and not dark_branded:
         blank = True
         reason = f"uniform black void (mean={mean:.1f} std={stddev:.1f})"
-    elif black_ratio >= 0.98 and stddev < 4.0:
+    elif black_ratio >= 0.98 and stddev < 4.0 and not dark_branded:
         blank = True
         reason = f"near-black empty content (black={black_ratio:.2f} std={stddev:.1f})"
-    elif mean < 10.0 and stddev < 10.0:
+    elif mean < 10.0 and stddev < 10.0 and not dark_branded:
         # Dead/black WebView — not dark themed new-tab (those keep branding variance).
         blank = True
         reason = f"content_mean too low (mean={mean:.1f} black={black_ratio:.2f})"
-    elif mean < 18.0 and black_ratio >= 0.90 and stddev < 12.0:
+    elif mean < 18.0 and black_ratio >= 0.90 and stddev < 12.0 and not dark_branded:
         blank = True
         reason = (
             f"content_mean too low (mean={mean:.1f} black={black_ratio:.2f} std={stddev:.1f})"
+        )
+    elif dark_branded:
+        reason = (
+            f"ok dark-branded (mean={mean:.1f} brand_std={brand_std:.1f} "
+            f"brand_mean={brand_mean:.1f})"
         )
 
     return {
@@ -1160,12 +1224,28 @@ def scenario_smoke_navigate(s: RpaSession) -> ScenarioResult:
     try:
         s.navigate("https://example.com", settle=3.0)
         shot = s.shot("smoke_example")
-        steps.append(Step("navigate_example", True, "loaded example.com", shot))
+        reached = s._nav_reached_host("example.com")
+        steps.append(
+            Step(
+                "navigate_example",
+                reached,
+                "loaded example.com" if reached else "still on New Tab / URL bar miss",
+                shot,
+            )
+        )
         steps.append(assert_content_not_blank(s, shot, "example_content_not_blank"))
 
         s.navigate("https://duckduckgo.com", settle=3.0)
         shot = s.shot("smoke_ddg")
-        steps.append(Step("navigate_ddg", True, "loaded duckduckgo.com", shot))
+        reached = s._nav_reached_host("duckduckgo.com")
+        steps.append(
+            Step(
+                "navigate_ddg",
+                reached,
+                "loaded duckduckgo.com" if reached else "still on New Tab / URL bar miss",
+                shot,
+            )
+        )
         steps.append(assert_content_not_blank(s, shot, "ddg_content_not_blank"))
 
         ok = all(st.ok for st in steps) and s.alive()
@@ -2253,12 +2333,17 @@ def _uninstall_void_browser_inner(cmd_timeout: float) -> dict[str, Any]:
 
     time.sleep(0.5)
     leftovers = _installed_void_exe_paths()
-    # Re-check registry — success if no Void Uninstall entries and no install-dir exe.
+    # Re-check registry — success if install-dir exe is gone. Stale Uninstall keys
+    # after a successful NSIS /S are common and must not fail teardown (job 1633).
     still_reg = _void_uninstall_registry_commands()
-    if leftovers or still_reg:
+    if leftovers:
         ok = False
         detail_parts.append(
-            f"leftover exe={leftovers or 'none'}; leftover registry={[n for n, _ in still_reg] or 'none'}"
+            f"leftover exe={leftovers}; leftover registry={[n for n, _ in still_reg] or 'none'}"
+        )
+    elif still_reg:
+        detail_parts.append(
+            f"exe clean; stale Uninstall keys={[n for n, _ in still_reg]} (tolerated)"
         )
     else:
         detail_parts.append("verified clean (no install-dir exe / Uninstall keys)")

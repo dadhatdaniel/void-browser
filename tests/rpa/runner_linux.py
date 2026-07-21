@@ -431,10 +431,13 @@ class LinuxRpaSession:
         if soft not in ("0", "false", "no"):
             env["VOID_SOFTWARE_RENDERING"] = "1"
             env["WEBKIT_DISABLE_COMPOSITING_MODE"] = "1"
+            # DMA-BUF + AC still black-bands on QXL even with compositing "disabled".
+            env.setdefault("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
             env.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
             env.setdefault("GALLIUM_DRIVER", "llvmpipe")
             env.setdefault("MESA_LOADER_DRIVER_OVERRIDE", "llvmpipe")
             env.setdefault("GSK_RENDERER", "cairo")
+            env.setdefault("GDK_BACKEND", "x11")
             env.pop("WEBKIT_FORCE_COMPOSITING_MODE", None)
         if enable_updater:
             env.pop(VOID_DISABLE_UPDATER_ENV, None)

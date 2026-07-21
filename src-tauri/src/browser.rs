@@ -129,6 +129,28 @@ fn apply_webview_bounds(
     webview.set_position(pos).map_err(|e| e.to_string())?;
     webview.set_size(size).map_err(|e| e.to_string())?;
     let _ = webview.show();
+
+    // Linux/GTK: wry set_size can leave the WebKit widget with a stale allocation
+    // (full-window chrome → opaque black band over the page). Force size-request
+    // + redraw in physical pixels.
+    #[cfg(target_os = "linux")]
+    {
+        let w = size.width.max(1.0);
+        let h = size.height.max(1.0);
+        let _ = webview.with_webview(move |platform| {
+            use gtk::prelude::*;
+            let wk = platform.inner();
+            // Logical pixels — matches wry/tauri set_size units on X11.
+            let pw = w.round().max(1.0) as i32;
+            let ph = h.round().max(1.0) as i32;
+            wk.set_size_request(pw, ph);
+            wk.set_hexpand(false);
+            wk.set_vexpand(false);
+            wk.queue_resize();
+            wk.queue_draw();
+        });
+    }
+
     Ok(())
 }
 
@@ -139,6 +161,7 @@ fn webview_dispatcher_ok(webview: &tauri::Webview) -> bool {
 /// Ensure WebView2 default context menus, accelerator keys, and status-bar
 /// settings stay enabled. Also softens Google-OAuth friction where the COM
 /// surface allows it (popups still constrained by Edge WebView2 policy).
+/// On Linux, apply WebKitGTK hardware-acceleration policy (QXL soft-render).
 fn ensure_editing_features(webview: &tauri::Webview) {
     #[cfg(windows)]
     {
@@ -162,7 +185,11 @@ fn ensure_editing_features(webview: &tauri::Webview) {
             }
         });
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        gpu::apply_webkit_acceleration_policy(webview);
+    }
+    #[cfg(all(not(windows), not(target_os = "linux")))]
     {
         let _ = webview;
     }
@@ -200,6 +227,21 @@ fn raise_webview_hwnd(webview: &tauri::Webview, focus: bool) {
                     let _ = SetWindowPos(hwnd, Some(HWND_TOP), 0, 0, 0, 0, flags);
                 }
             }
+        });
+    }
+
+    // Linux: raise the GDK window so content sits above an oversized chrome strip.
+    #[cfg(target_os = "linux")]
+    {
+        let _ = webview.with_webview(|platform| {
+            use gtk::prelude::*;
+            let wk = platform.inner();
+            if let Some(window) = wk.window() {
+                window.raise();
+                window.show();
+            }
+            wk.show();
+            wk.queue_draw();
         });
     }
 }
