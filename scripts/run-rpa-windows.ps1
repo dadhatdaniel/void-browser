@@ -12,7 +12,7 @@
 
 param(
   [string]$ExePath = "",
-  [string]$Scenarios = "download_install,app_launch,smoke_navigate,nav_history,visit_void_site,settings_preserves_tab,new_tab,youtube_signin_page,context_menu,auto_update",
+  [string]$Scenarios = "download_install,app_launch,smoke_navigate,nav_history,visit_void_site,void_xp_desktop,settings_preserves_tab,new_tab,youtube_signin_page,context_menu,auto_update",
   [switch]$Build,
   [switch]$SmokeOnly,
   [switch]$DownloadInstall,

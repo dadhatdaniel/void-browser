@@ -44,6 +44,7 @@ if (-not $Scenarios) {
     "smoke_navigate",
     "nav_history",
     "visit_void_site",
+    "void_xp_desktop",
     "settings_preserves_tab",
     "new_tab",
     "youtube_signin_page",

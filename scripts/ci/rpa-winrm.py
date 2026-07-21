@@ -31,7 +31,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 DEFAULT_SCENARIOS = (
-    "download_install,app_launch,smoke_navigate,nav_history,visit_void_site,"
+    "download_install,app_launch,smoke_navigate,nav_history,visit_void_site,void_xp_desktop,"
     "settings_preserves_tab,new_tab,youtube_signin_page,context_menu,auto_update"
 )
 

@@ -43,7 +43,12 @@ DEFAULT_DOWNLOAD_DIR = Path(
     os.environ.get("VOID_RPA_DOWNLOAD_DIR", str(ROOT / "downloads" / "rpa"))
 )
 VOID_SITE_LAN_URL = os.environ.get("VOID_SITE_LAN_URL", "http://10.0.0.10:5080/").rstrip("/") + "/"
-VOID_SITE_LAN_DOWNLOAD_URL = VOID_SITE_LAN_URL + "#download"
+VOID_SITE_LAN_SKIP_URL = os.environ.get(
+    "VOID_SITE_LAN_SKIP_URL", VOID_SITE_LAN_URL.rstrip("/") + "/?skip=1"
+)
+VOID_SITE_LAN_DOWNLOAD_URL = os.environ.get(
+    "VOID_SITE_LAN_DOWNLOAD_URL", VOID_SITE_LAN_SKIP_URL
+)
 RELEASES_JSON_URL = os.environ.get(
     "VOID_RELEASES_JSON_URL", VOID_SITE_LAN_URL.rstrip("/") + "/releases.json"
 )
@@ -62,7 +67,7 @@ DEFAULT_SCENARIO_TIMEOUT_SEC = float(os.environ.get("VOID_RPA_SCENARIO_TIMEOUT",
 VOID_DISABLE_UPDATER_ENV = "VOID_DISABLE_UPDATER"
 
 DEFAULT_SCENARIOS = (
-    "download_install,app_launch,smoke_navigate,nav_history,visit_void_site,"
+    "download_install,app_launch,smoke_navigate,nav_history,visit_void_site,void_xp_desktop,"
     "settings_preserves_tab,new_tab,youtube_signin_page,context_menu,auto_update"
 )
 
@@ -747,6 +752,48 @@ class LinuxRpaSession:
             self.type_keys("Page_Down")
             time.sleep(pause)
 
+    def content_rect(self) -> tuple[int, int, int, int]:
+        left, top, right, bottom = self.window_rect()
+        w, h = max(0, right - left), max(0, bottom - top)
+        return (
+            left + int(w * 0.04),
+            top + int(h * 0.18),
+            left + int(w * 0.96),
+            top + int(h * 0.96),
+        )
+
+    def click_content_frac(self, fx: float, fy: float, *, double: bool = False) -> bool:
+        cl, ct, cr, cb = self.content_rect()
+        cw, ch = cr - cl, cb - ct
+        if cw < 80 or ch < 80:
+            return False
+        abs_x = cl + int(max(0.0, min(1.0, fx)) * cw)
+        abs_y = ct + int(max(0.0, min(1.0, fy)) * ch)
+        self.ensure_foreground()
+        if double:
+            code, _ = _run(
+                [
+                    "xdotool",
+                    "mousemove",
+                    str(abs_x),
+                    str(abs_y),
+                    "click",
+                    "--repeat",
+                    "2",
+                    "--delay",
+                    "80",
+                    "1",
+                ],
+                timeout=5,
+            )
+        else:
+            code, _ = _run(
+                ["xdotool", "mousemove", str(abs_x), str(abs_y), "click", "1"],
+                timeout=5,
+            )
+        time.sleep(0.35)
+        return code == 0
+
     def dismiss_update_dialogs(self) -> None:
         # Best-effort: Escape / click Later if an update dialog steals focus
         for _ in range(3):
@@ -768,6 +815,77 @@ def assert_content_not_blank(s: LinuxRpaSession, shot_name: str, label: str) -> 
         f"{info['reason']}; bright={info['bright_ratio']} std={info['stddev']} "
         f"mean={info['mean']} top={info.get('top_mean')} bot={info.get('bot_mean')} "
         f"glitch={info.get('paint_glitch')} size={info['size']}"
+    )
+    return Step(label, ok, detail, shot_name)
+
+
+def analyze_xp_desktop(image_path: Path) -> dict[str, Any]:
+    """Heuristic Luna taskbar / colorful bliss desktop (parity with Windows RPA)."""
+    from PIL import Image
+
+    base = analyze_content_region(image_path)
+    out: dict[str, Any] = {
+        **base,
+        "looks_xp": False,
+        "taskbar_blue_ratio": 0.0,
+        "start_green_ratio": 0.0,
+        "xp_reason": "not evaluated",
+    }
+    if not image_path.is_file():
+        out["xp_reason"] = "missing image"
+        return out
+    try:
+        img = Image.open(image_path).convert("RGB")
+    except Exception as e:  # noqa: BLE001
+        out["xp_reason"] = f"open failed: {e}"
+        return out
+    w, h = img.size
+    if w < 80 or h < 80:
+        out["xp_reason"] = f"too small {w}x{h}"
+        return out
+    strip = img.crop((int(w * 0.01), int(h * 0.90), int(w * 0.50), int(h * 0.99)))
+    small = strip.resize((80, 14))
+    px = small.load()
+    n = 80 * 14
+    blues = greens = 0
+    for y in range(14):
+        for x in range(80):
+            r, g, b = px[x, y]
+            if b >= 70 and b > r + 15 and b >= g:
+                blues += 1
+            if g >= 70 and g > r + 10 and g >= b:
+                greens += 1
+    blue_ratio = blues / max(1, n)
+    green_ratio = greens / max(1, n)
+    out["taskbar_blue_ratio"] = round(blue_ratio, 3)
+    out["start_green_ratio"] = round(green_ratio, 3)
+    if base.get("blank"):
+        out["xp_reason"] = f"blank content ({base.get('reason')})"
+    elif blue_ratio >= 0.10 or green_ratio >= 0.03:
+        out["looks_xp"] = True
+        out["xp_reason"] = f"taskbar/start cues blue={blue_ratio:.2f} green={green_ratio:.2f}"
+    elif float(base.get("stddev") or 0) >= 22.0 and float(base.get("mean") or 0) >= 35.0:
+        out["looks_xp"] = True
+        out["xp_reason"] = (
+            f"colorful desktop (mean={base.get('mean')} std={base.get('stddev')})"
+        )
+    else:
+        out["xp_reason"] = (
+            f"weak XP cues blue={blue_ratio:.2f} green={green_ratio:.2f} "
+            f"mean={base.get('mean')} std={base.get('stddev')}"
+        )
+    return out
+
+
+def assert_xp_desktop(s: LinuxRpaSession, shot_name: str, label: str) -> Step:
+    path = s.shot_path(shot_name)
+    if not path.is_file():
+        return Step(label, False, f"screenshot missing: {shot_name}", shot_name)
+    info = analyze_xp_desktop(path)
+    ok = bool(info.get("looks_xp")) and s.alive() and not info.get("blank")
+    detail = (
+        f"{info.get('xp_reason')}; blank={info.get('blank')} "
+        f"blue={info.get('taskbar_blue_ratio')} green={info.get('start_green_ratio')}"
     )
     return Step(label, ok, detail, shot_name)
 
@@ -1260,50 +1378,224 @@ def scenario_context_menu(s: LinuxRpaSession) -> ScenarioResult:
 
 
 def scenario_visit_void_site(s: LinuxRpaSession) -> ScenarioResult:
+    """VOID OS XP theatrical site via ?skip=1 (parity with Windows visit_void_site)."""
     steps: list[Step] = []
     t0 = time.time()
     try:
-        s.navigate(VOID_SITE_LAN_URL, settle=3.0)
-        hero = s.shot("void_site_hero")
+        s.navigate(VOID_SITE_LAN_SKIP_URL, settle=3.5)
+        desk = s.shot("void_xp_desktop_skip")
         title = s.window_title()
         url_txt = s.url_bar_text()
+        alive = s.alive()
         steps.append(
             Step(
-                "open_void_home_lan",
-                s.alive(),
-                f"LAN {VOID_SITE_LAN_URL}; title={title!r}; url_bar={url_txt!r}",
-                hero,
+                "open_void_xp_skip",
+                alive,
+                f"LAN skip {VOID_SITE_LAN_SKIP_URL}; title={title!r}; url_bar={url_txt!r}",
+                desk,
             )
         )
-        steps.append(assert_content_not_blank(s, hero, "void_hero_not_blank"))
+        steps.append(assert_xp_desktop(s, desk, "desktop_visible_skip"))
+        steps.append(assert_content_not_blank(s, desk, "void_desktop_not_blank"))
 
-        s.scroll_page(downs=8, pause=0.25)
-        mid = s.shot("void_site_scrolled")
-        steps.append(Step("scroll_marketing", s.alive(), "scrolled toward features/download", mid))
-
-        s.navigate(VOID_SITE_LAN_DOWNLOAD_URL, settle=2.5)
-        dl = s.shot("void_site_download")
+        clicked_start = s.click_content_frac(0.035, 0.97)
+        time.sleep(0.6)
+        start_shot = s.shot("void_xp_start_menu")
         steps.append(
             Step(
-                "open_download_anchor_lan",
-                s.alive(),
-                f"LAN #download; url_bar={s.url_bar_text()!r}",
-                dl,
+                "start_button_taskbar",
+                alive and clicked_start,
+                "Start / taskbar geometry click (xdotool; no AT-SPI web buttons)",
+                start_shot,
             )
         )
-        steps.append(assert_content_not_blank(s, dl, "void_download_not_blank"))
+        s.type_keys("Escape")
+        time.sleep(0.3)
 
-        ok = all(st.ok for st in steps) and s.alive()
+        # Welcome CTAs — geometry toward centered welcome primary
+        s.click_content_frac(0.42, 0.52)
+        time.sleep(0.5)
+        cta_shot = s.shot("void_xp_welcome_cta")
+        steps.append(
+            Step(
+                "welcome_cta",
+                alive,
+                "Welcome Open Void Browser / Get Void (geometry + screenshot)",
+                cta_shot,
+            )
+        )
+
+        opened_browser = s.click_content_frac(0.04, 0.07)
+        time.sleep(0.9)
+        browser_shot = s.shot("void_xp_browser_window")
+        steps.append(
+            Step(
+                "open_void_browser_icon",
+                alive and opened_browser,
+                "Void Browser desk-icon geometry click",
+                browser_shot,
+            )
+        )
+        steps.append(assert_content_not_blank(s, browser_shot, "browser_window_not_blank"))
+
+        opened_dl = s.click_content_frac(0.04, 0.48)
+        time.sleep(1.0)
+        dl_shot = s.shot("void_xp_download_window")
+        steps.append(
+            Step(
+                "open_download_window",
+                alive and opened_dl,
+                "Download desk-icon → Acquire Void",
+                dl_shot,
+            )
+        )
+        steps.append(assert_content_not_blank(s, dl_shot, "download_window_not_blank"))
+
+        releases_ok = False
+        releases_detail = ""
+        try:
+            meta = http_get_json(RELEASES_JSON_URL)
+            assets = meta.get("assets") or {}
+            keys = [
+                k
+                for k in ("windows_exe", "linux_appimage", "linux_deb", "macos_dmg")
+                if assets.get(k)
+            ]
+            releases_ok = bool(keys)
+            releases_detail = f"tag={meta.get('tag')!r} assets={keys}"
+        except Exception as e:  # noqa: BLE001
+            releases_detail = str(e)
+        s.type_keys("Tab")
+        s.type_keys("Tab")
+        s.type_keys("Tab")
+        time.sleep(0.3)
+        dl_focus = s.shot("void_xp_download_buttons")
+        steps.append(
+            Step(
+                "releases_json_download_buttons",
+                releases_ok,
+                f"{RELEASES_JSON_URL} {releases_detail}",
+                dl_focus,
+            )
+        )
+
+        required = {
+            "open_void_xp_skip",
+            "desktop_visible_skip",
+            "void_desktop_not_blank",
+            "start_button_taskbar",
+            "open_void_browser_icon",
+            "browser_window_not_blank",
+            "open_download_window",
+            "download_window_not_blank",
+            "releases_json_download_buttons",
+        }
+        ok = alive and all(st.ok for st in steps if st.name in required)
         return ScenarioResult(
             "visit_void_site",
             ok,
             steps,
-            error=None if ok else "void site blank or failed",
+            error=None if ok else "XP desktop / browser / download path failed",
             duration_sec=time.time() - t0,
         )
     except Exception as e:  # noqa: BLE001
         steps.append(Step("visit_void_site", False, str(e), s.shot("void_fail")))
-        return ScenarioResult("visit_void_site", False, steps, error=str(e), duration_sec=time.time() - t0)
+        return ScenarioResult(
+            "visit_void_site", False, steps, error=str(e), duration_sec=time.time() - t0
+        )
+
+
+def scenario_void_xp_desktop(s: LinuxRpaSession) -> ScenarioResult:
+    """Boot Esc → desktop + soft easter (Recycle Bin / Start→cmd)."""
+    steps: list[Step] = []
+    t0 = time.time()
+    soft_notes: list[str] = []
+    try:
+        s.navigate(VOID_SITE_LAN_URL, settle=2.0)
+        boot = s.shot("void_xp_boot_bios")
+        steps.append(
+            Step(
+                "open_boot_path",
+                s.alive(),
+                f"opened {VOID_SITE_LAN_URL} (expect BIOS/load before Esc)",
+                boot,
+            )
+        )
+        s.click_content_frac(0.5, 0.4)
+        time.sleep(0.2)
+        s.type_keys("Escape")
+        time.sleep(1.5)
+        after = s.shot("void_xp_boot_after_esc")
+        xp = assert_xp_desktop(s, after, "boot_esc_lands_desktop")
+        if not xp.ok:
+            s.type_keys("Escape")
+            time.sleep(1.0)
+            s.click_content_frac(0.5, 0.4)
+            time.sleep(1.0)
+            after = s.shot("void_xp_boot_after_esc_retry")
+            xp = assert_xp_desktop(s, after, "boot_esc_lands_desktop")
+        steps.append(xp)
+        steps.append(assert_content_not_blank(s, after, "boot_desktop_not_blank"))
+
+        easter_ok = False
+        easter_detail = ""
+        try:
+            s.click_content_frac(0.04, 0.38, double=True)
+            time.sleep(0.9)
+            egg = s.shot("void_xp_recycle_easter")
+            # Fallback: Start → Command Prompt region
+            s.type_keys("Escape")
+            time.sleep(0.2)
+            s.click_content_frac(0.035, 0.97)
+            time.sleep(0.5)
+            cmd_clicked = s.click_content_frac(0.55, 0.62)
+            time.sleep(0.8)
+            egg = s.shot("void_xp_cmd_easter")
+            easter_ok = bool(cmd_clicked)
+            easter_detail = "recycle dblclick + Start/cmd geometry"
+            steps.append(
+                Step(
+                    "easter_egg_smoke",
+                    True,
+                    f"{'ok' if easter_ok else 'soft_miss'}: {easter_detail}",
+                    egg,
+                )
+            )
+            if not easter_ok:
+                soft_notes.append(f"easter soft_miss: {easter_detail}")
+            s.type_keys("Escape")
+            time.sleep(0.2)
+        except Exception as e:  # noqa: BLE001
+            soft_notes.append(f"easter exception: {e}")
+            steps.append(
+                Step(
+                    "easter_egg_smoke",
+                    True,
+                    f"soft_fail allow: {e}",
+                    s.shot("void_xp_easter_fail"),
+                )
+            )
+
+        hard_ok = all(
+            st.ok
+            for st in steps
+            if st.name
+            in ("open_boot_path", "boot_esc_lands_desktop", "boot_desktop_not_blank")
+        )
+        return ScenarioResult(
+            "void_xp_desktop",
+            hard_ok,
+            steps,
+            error=None if hard_ok else "boot Esc did not reach XP desktop",
+            duration_sec=time.time() - t0,
+            soft_fail=bool(soft_notes) and hard_ok,
+        )
+    except Exception as e:  # noqa: BLE001
+        steps.append(Step("void_xp_desktop", False, str(e), s.shot("void_xp_fail")))
+        return ScenarioResult(
+            "void_xp_desktop", False, steps, error=str(e), duration_sec=time.time() - t0
+        )
+
 
 
 def scenario_auto_update(s: LinuxRpaSession) -> ScenarioResult:
@@ -1458,6 +1750,7 @@ SCENARIOS: dict[str, Callable[[LinuxRpaSession], ScenarioResult]] = {
     "smoke_navigate": scenario_smoke_navigate,
     "nav_history": scenario_nav_history,
     "visit_void_site": scenario_visit_void_site,
+    "void_xp_desktop": scenario_void_xp_desktop,
     "settings_preserves_tab": scenario_settings_preserves_tab,
     "new_tab": scenario_new_tab,
     "youtube_signin_page": scenario_youtube_signin_page,

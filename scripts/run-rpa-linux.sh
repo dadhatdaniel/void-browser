@@ -13,7 +13,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-SCENARIOS="${VOID_RPA_SCENARIOS:-download_install,app_launch,smoke_navigate,nav_history,visit_void_site,settings_preserves_tab,new_tab,youtube_signin_page,context_menu,auto_update}"
+SCENARIOS="${VOID_RPA_SCENARIOS:-download_install,app_launch,smoke_navigate,nav_history,visit_void_site,void_xp_desktop,settings_preserves_tab,new_tab,youtube_signin_page,context_menu,auto_update}"
 LAUNCH_WAIT="${VOID_RPA_LAUNCH_WAIT:-8}"
 export DISPLAY="${DISPLAY:-:0}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
