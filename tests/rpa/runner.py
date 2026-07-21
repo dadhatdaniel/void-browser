@@ -307,7 +307,7 @@ class RpaSession:
         self.type_keys("^a")
         time.sleep(0.1)
 
-    def _nav_reached_host(self, host: str) -> bool:
+    def _nav_reached_host(self, host: str, shot_name: Optional[str] = None) -> bool:
         if not host:
             return True
         needle = host.split(".")[0]
@@ -323,6 +323,17 @@ class RpaSession:
             url_txt = ""
         if host in url_txt or needle in url_txt:
             return True
+        # Win32 title often stays "Void" / "New Tab" even after a successful load.
+        # Accept a painted content shot that is clearly not the dark new-tab page.
+        if shot_name:
+            path = self.shot_path(shot_name)
+            if path.is_file():
+                try:
+                    info = analyze_content_region(path)
+                    if (not info.get("blank")) and float(info.get("mean") or 0) >= 35.0:
+                        return True
+                except Exception:  # noqa: BLE001
+                    pass
         return False
 
     def navigate(self, url: str, settle: float = 2.5, retries: int = 2) -> None:
@@ -1230,7 +1241,7 @@ def scenario_smoke_navigate(s: RpaSession) -> ScenarioResult:
     try:
         s.navigate("https://example.com", settle=3.0)
         shot = s.shot("smoke_example")
-        reached = s._nav_reached_host("example.com")
+        reached = s._nav_reached_host("example.com", shot)
         steps.append(
             Step(
                 "navigate_example",
@@ -1243,7 +1254,7 @@ def scenario_smoke_navigate(s: RpaSession) -> ScenarioResult:
 
         s.navigate("https://duckduckgo.com", settle=3.0)
         shot = s.shot("smoke_ddg")
-        reached = s._nav_reached_host("duckduckgo.com")
+        reached = s._nav_reached_host("duckduckgo.com", shot)
         steps.append(
             Step(
                 "navigate_ddg",

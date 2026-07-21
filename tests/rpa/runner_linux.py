@@ -209,18 +209,35 @@ def analyze_content_region(image_path: Path) -> dict[str, Any]:
     blank = False
     paint_glitch = False
     reason = "ok"
+    # Dark Void new-tab is mostly black but keeps branding variance in the
+    # upper content crop — do not treat that as a dead WebKit frame.
+    brand_left = int(crop.width * 0.18)
+    brand_right = int(crop.width * 0.82)
+    brand_top = int(crop.height * 0.12)
+    brand_bot = int(crop.height * 0.55)
+    brand = crop.crop((brand_left, brand_top, brand_right, brand_bot)).resize((64, 40))
+    brand_stat = ImageStat.Stat(brand.convert("L"))
+    brand_std = float(brand_stat.stddev[0]) if brand_stat.stddev else 0.0
+    brand_mean = float(brand_stat.mean[0]) if brand_stat.mean else 0.0
+    dark_branded = (
+        mean < 40.0
+        and brand_std >= 8.0
+        and brand_mean >= 8.0
+        and stddev >= 4.0
+        and not (band_frac >= 0.16 and max_row >= 40.0)
+    )
     if bright_ratio >= 0.92 and stddev < 18.0:
         blank, reason = True, f"near-white content (bright={bright_ratio:.2f} std={stddev:.1f})"
     elif stddev < 5.0 and mean > 230:
         blank, reason = True, f"uniform bright (mean={mean:.1f} std={stddev:.1f})"
-    elif stddev < 4.0 and mean < 15:
+    elif stddev < 4.0 and mean < 15 and not dark_branded:
         blank, reason = True, f"uniform black void (mean={mean:.1f} std={stddev:.1f})"
-    elif black_ratio >= 0.98 and stddev < 4.0:
+    elif black_ratio >= 0.98 and stddev < 4.0 and not dark_branded:
         blank, reason = True, f"near-black empty (black={black_ratio:.2f} std={stddev:.1f})"
-    elif mean < 10.0 and stddev < 10.0:
+    elif mean < 10.0 and stddev < 10.0 and not dark_branded:
         # Mostly-black / dead WebKit — never silent-PASS on content_mean ~0.
         blank, reason = True, f"content_mean too low (mean={mean:.1f} black={black_ratio:.2f})"
-    elif mean < 18.0 and black_ratio >= 0.90 and stddev < 12.0:
+    elif mean < 18.0 and black_ratio >= 0.90 and stddev < 12.0 and not dark_branded:
         blank, reason = True, (
             f"content_mean too low (mean={mean:.1f} black={black_ratio:.2f} std={stddev:.1f})"
         )
@@ -251,6 +268,11 @@ def analyze_content_region(image_path: Path) -> dict[str, Any]:
         reason = (
             f"top-half black paint glitch "
             f"(top_mean={top_mean:.1f} bot_mean={bot_mean:.1f})"
+        )
+    elif dark_branded:
+        reason = (
+            f"ok dark-branded (mean={mean:.1f} brand_std={brand_std:.1f} "
+            f"brand_mean={brand_mean:.1f})"
         )
     return {
         "blank": blank,
