@@ -1,35 +1,85 @@
 // Void Browser — Hardware acceleration / GPU defaults
 //
+// Driven by Settings → Performance mode (`performance` | `efficiency` in config.toml).
+// Env override: VOID_SOFTWARE_RENDERING=1 forces the efficiency/software path (RPA guests).
+//
 // Platform notes:
-// - Windows (WebView2): Chromium GPU compositing is ON by default. We never pass
-//   --disable-gpu. We strip it if present in the environment and optionally enable
-//   Canvas OOP rasterization (low risk). Transparent windows can force software
+// - Windows (WebView2): Performance keeps Chromium GPU compositing ON (never --disable-gpu).
+//   Efficiency prefers software / power-saving flags. Transparent windows can force software
 //   paths — keep app.windows[].transparent = false.
-// - Linux (WebKitGTK): Prefer hardware compositing; clear WEBKIT_DISABLE_COMPOSITING_MODE
-//   unless VOID_SOFTWARE_RENDERING=1.
-// - macOS (WKWebView): Uses Metal/GPU by default; no flags required.
+// - Linux (WebKitGTK): Performance prefers hardware compositing; Efficiency matches the
+//   VOID_SOFTWARE_RENDERING software path.
+// - macOS (WKWebView): Metal/GPU by default; Efficiency is best-effort (no public SW force).
+
+use crate::config::PerformanceMode;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Last applied software/efficiency preference (for WebView2 arg builders).
+static SOFTWARE_PREFERRED: AtomicBool = AtomicBool::new(false);
+
+fn env_forces_software() -> bool {
+    match std::env::var("VOID_SOFTWARE_RENDERING") {
+        Ok(v) => {
+            let t = v.trim().to_ascii_lowercase();
+            !(t.is_empty() || t == "0" || t == "false" || t == "no")
+        }
+        Err(_) => false,
+    }
+}
+
+/// True when Efficiency mode is selected, or VOID_SOFTWARE_RENDERING forces software.
+pub fn software_preferred(mode: PerformanceMode) -> bool {
+    env_forces_software() || matches!(mode, PerformanceMode::Efficiency)
+}
 
 /// Browser args applied to WebView2 (main + child webviews must match).
 #[cfg(target_os = "windows")]
 pub fn webview2_browser_args() -> String {
-    const EXTRA: &str = "--enable-features=CanvasOopRasterization";
+    let software = SOFTWARE_PREFERRED.load(Ordering::SeqCst) || env_forces_software();
 
-    let existing = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").unwrap_or_default();
-    let cleaned: Vec<&str> = existing
-        .split_whitespace()
-        .filter(|a| {
-            let lower = a.to_ascii_lowercase();
-            !lower.contains("disable-gpu")
-                && !lower.contains("disable-gpu-compositing")
-                && !lower.contains("use-gl=swiftshader")
-                && *a != EXTRA
-        })
-        .collect();
+    if software {
+        // Power-saving / software path — strip HW extras, add disable-gpu flags.
+        const EFFICIENCY: &str =
+            "--disable-gpu --disable-gpu-compositing --disable-features=CanvasOopRasterization";
 
-    if cleaned.is_empty() {
-        EXTRA.to_string()
+        let existing = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").unwrap_or_default();
+        let cleaned: Vec<&str> = existing
+            .split_whitespace()
+            .filter(|a| {
+                let lower = a.to_ascii_lowercase();
+                !lower.contains("disable-gpu")
+                    && !lower.contains("disable-gpu-compositing")
+                    && !lower.contains("use-gl=swiftshader")
+                    && !lower.contains("canvasooprasterization")
+                    && *a != EFFICIENCY
+            })
+            .collect();
+
+        if cleaned.is_empty() {
+            EFFICIENCY.to_string()
+        } else {
+            format!("{} {}", cleaned.join(" "), EFFICIENCY)
+        }
     } else {
-        format!("{} {}", cleaned.join(" "), EXTRA)
+        const EXTRA: &str = "--enable-features=CanvasOopRasterization";
+
+        let existing = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").unwrap_or_default();
+        let cleaned: Vec<&str> = existing
+            .split_whitespace()
+            .filter(|a| {
+                let lower = a.to_ascii_lowercase();
+                !lower.contains("disable-gpu")
+                    && !lower.contains("disable-gpu-compositing")
+                    && !lower.contains("use-gl=swiftshader")
+                    && *a != EXTRA
+            })
+            .collect();
+
+        if cleaned.is_empty() {
+            EXTRA.to_string()
+        } else {
+            format!("{} {}", cleaned.join(" "), EXTRA)
+        }
     }
 }
 
@@ -63,31 +113,29 @@ pub fn configure_webview2_profile() {
 #[cfg(not(target_os = "windows"))]
 pub fn configure_webview2_profile() {}
 
-/// Call before any WebView is created.
-pub fn configure_hardware_acceleration() {
+/// Call before any WebView is created, and again when Settings → Performance mode changes.
+pub fn configure_hardware_acceleration(mode: PerformanceMode) {
     configure_webview2_profile();
+
+    let software = software_preferred(mode);
+    SOFTWARE_PREFERRED.store(software, Ordering::SeqCst);
 
     #[cfg(target_os = "windows")]
     {
         let args = webview2_browser_args();
-        // Safety: called once at process start before other threads spawn webviews.
+        // Safety: called at process start / settings change before new webviews spawn.
         unsafe {
             std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", &args);
         }
-        eprintln!("[void] WebView2 GPU: hardware accel default (args: {args})");
+        if software {
+            eprintln!("[void] WebView2 GPU: efficiency / software preferred (args: {args})");
+        } else {
+            eprintln!("[void] WebView2 GPU: performance / hardware accel (args: {args})");
+        }
     }
 
     #[cfg(target_os = "linux")]
     {
-        // Treat unset as HW-preferring; only force software when explicitly enabled
-        // (VOID_SOFTWARE_RENDERING=1 / true / yes). RPA QEMU guests set this.
-        let software = match std::env::var("VOID_SOFTWARE_RENDERING") {
-            Ok(v) => {
-                let t = v.trim().to_ascii_lowercase();
-                !(t.is_empty() || t == "0" || t == "false" || t == "no")
-            }
-            Err(_) => false,
-        };
         if software {
             // QXL/no-DRI3 guests black out under WebKit AC — force the software path.
             unsafe {
@@ -105,7 +153,7 @@ pub fn configure_hardware_acceleration() {
                 }
             }
             eprintln!(
-                "[void] WebKitGTK: VOID_SOFTWARE_RENDERING — \
+                "[void] WebKitGTK: efficiency / software — \
                  WEBKIT_DISABLE_COMPOSITING_MODE=1, software GL/Cairo"
             );
         } else {
@@ -114,12 +162,18 @@ pub fn configure_hardware_acceleration() {
                 // Prefer HW compositing when the driver supports it; WebKit falls back if not.
                 std::env::set_var("WEBKIT_FORCE_COMPOSITING_MODE", "1");
             }
-            eprintln!("[void] WebKitGTK: hardware compositing preferred");
+            eprintln!("[void] WebKitGTK: performance / hardware compositing preferred");
         }
     }
 
     #[cfg(target_os = "macos")]
     {
-        eprintln!("[void] WKWebView: Metal GPU acceleration (system default)");
+        if software {
+            eprintln!(
+                "[void] WKWebView: efficiency requested — Metal still used (no public SW force)"
+            );
+        } else {
+            eprintln!("[void] WKWebView: performance / Metal GPU acceleration (system default)");
+        }
     }
 }

@@ -67,11 +67,13 @@ fn get_config_path() -> String {
 
 #[tauri::command]
 fn update_config(new_config: VoidConfig, state: State<AppState>) -> Result<(), String> {
-    let rebuild_blocker = {
+    let (rebuild_blocker, mode_changed) = {
         let current = state.config.lock().map_err(|e| e.to_string())?;
-        current.adblock_enabled != new_config.adblock_enabled
+        let rebuild = current.adblock_enabled != new_config.adblock_enabled
             || current.tracker_blocking != new_config.tracker_blocking
-            || current.custom_filters != new_config.custom_filters
+            || current.custom_filters != new_config.custom_filters;
+        let mode = current.performance_mode != new_config.performance_mode;
+        (rebuild, mode)
     };
 
     // Flush to disk first so a crash after save still keeps user changes.
@@ -80,6 +82,12 @@ fn update_config(new_config: VoidConfig, state: State<AppState>) -> Result<(), S
     {
         let mut config = state.config.lock().map_err(|e| e.to_string())?;
         *config = new_config.clone();
+    }
+
+    if mode_changed {
+        // Re-apply GPU/env flags now; existing WebView2 processes may need a restart
+        // for additional_browser_args to take full effect.
+        gpu::configure_hardware_acceleration(new_config.performance_mode);
     }
 
     if rebuild_blocker {
@@ -110,9 +118,10 @@ fn set_active_tab(id: String, state: State<AppState>) -> bool {
 }
 
 fn main() {
-    gpu::configure_hardware_acceleration();
-
     let config = config::load_config().unwrap_or_default();
+    // Apply Settings → Performance mode (and VOID_SOFTWARE_RENDERING) before any WebView.
+    gpu::configure_hardware_acceleration(config.performance_mode);
+
     let blocker = adblock::AdBlocker::new(&config);
     let tab_manager = tabs::TabManager::new();
 

@@ -46,7 +46,7 @@ shasum -a 256 --check CHECKSUMS.sha256  # macOS
 - 👻 **Anti-fingerprinting** — Canvas, WebGL, AudioContext resistance
 - 🚫 **Zero telemetry** — Nothing leaves your machine. Ever.
 - ⚡ **Tiny footprint** — Under 10MB, uses native OS webview
-- 🎨 **Customizable** — Dark/Light/System/Midnight themes, custom CSS, configurable keybinds
+- 🎨 **Customizable** — Dark/Light/System/Midnight themes, Efficiency/Performance mode, custom CSS, configurable keybinds
 - 🔐 **DNS over HTTPS** — Quad9, Cloudflare, or Mullvad built in
 - 🌐 **WebRTC leak protection** — Prevents IP leaks even with VPNs
 
@@ -118,6 +118,7 @@ Void stores config in a local TOML file — no cloud, no account:
 homepage = "void://newtab"
 search_engine = "DuckDuckGo"
 theme = "System"
+performance_mode = "performance"  # or "efficiency" for power-saving / software GPU
 adblock_enabled = true
 security_level = "Strict"
 
@@ -126,6 +127,8 @@ spoof_canvas = true
 spoof_webgl = true
 spoof_audio = true
 ```
+
+**Performance mode** (default) prefers GPU / hardware acceleration. **Efficiency** prefers power-saving software rendering (WebView2 `--disable-gpu` / WebKit software path; same idea as `VOID_SOFTWARE_RENDERING=1`).
 
 ## Project Structure
 

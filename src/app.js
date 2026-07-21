@@ -417,6 +417,12 @@ async function populateSettingsForm() {
   const compact = document.getElementById('compact-mode');
   if (compact) compact.checked = !!appConfig.compact_mode;
 
+  const perfMode = document.getElementById('performance-mode');
+  if (perfMode) {
+    const mode = String(enumName(appConfig.performance_mode, 'performance')).toLowerCase();
+    perfMode.value = mode === 'efficiency' ? 'efficiency' : 'performance';
+  }
+
   const homepage = document.getElementById('homepage-input');
   if (homepage) homepage.value = appConfig.homepage || 'void://newtab';
 
@@ -484,6 +490,10 @@ async function saveSettings() {
   const theme = document.getElementById('theme-select')?.value || 'Dark';
   const fontSize = Number(document.getElementById('font-size')?.value || 14);
   const compact = !!document.getElementById('compact-mode')?.checked;
+  const performanceMode =
+    document.getElementById('performance-mode')?.value === 'efficiency'
+      ? 'efficiency'
+      : 'performance';
   const homepage = document.getElementById('homepage-input')?.value?.trim() || 'void://newtab';
   const searchEngine = document.getElementById('search-engine')?.value || 'DuckDuckGo';
   const adblockOn = !!document.getElementById('adblock-toggle')?.checked;
@@ -503,6 +513,7 @@ async function saveSettings() {
     theme,
     font_size: fontSize,
     compact_mode: compact,
+    performance_mode: performanceMode,
     security_level: security,
     adblock_enabled: adblockOn,
     tracker_blocking: trackerOn,
@@ -549,11 +560,19 @@ async function saveSettings() {
     appConfig = next;
     applyAppearance(appConfig);
     await reportChromeHeight();
-    setStatus('Saved — will persist after restart', true);
+    setStatus('Saved — restart if you changed Performance mode', true);
     // Verify round-trip from disk-backed state
     const verified = await invoke('get_config');
     if (verified && enumName(verified.theme, '') === theme) {
-      setStatus('Saved', true);
+      const savedMode = String(enumName(verified.performance_mode, performanceMode)).toLowerCase();
+      if (savedMode === performanceMode) {
+        setStatus(
+          performanceMode === 'efficiency'
+            ? 'Saved (Efficiency — restart for full GPU change)'
+            : 'Saved',
+          true,
+        );
+      }
     }
   } catch (e) {
     console.error(e);

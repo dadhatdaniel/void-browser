@@ -24,6 +24,11 @@ pub struct VoidConfig {
     pub compact_mode: bool,
     pub custom_css: Option<String>,
 
+    /// GPU / power preference: `performance` (HW accel) or `efficiency` (software / power-saving).
+    /// Missing in older config.toml → Performance (serde default).
+    #[serde(default)]
+    pub performance_mode: PerformanceMode,
+
     // ── Privacy & Security ──
     pub security_level: SecurityLevel,
     pub adblock_enabled: bool,
@@ -55,6 +60,7 @@ impl Default for VoidConfig {
             show_bookmarks_bar: false,
             compact_mode: false,
             custom_css: None,
+            performance_mode: PerformanceMode::Performance,
             security_level: SecurityLevel::Strict,
             adblock_enabled: true,
             tracker_blocking: true,
@@ -96,6 +102,17 @@ pub enum Theme {
     Midnight, // OLED black
     System,   // follow OS prefers-color-scheme
     Custom(String),
+}
+
+/// Rendering / power preference persisted as `performance_mode = "performance" | "efficiency"`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PerformanceMode {
+    /// Prefer GPU / hardware acceleration (WebView2 / WebKit defaults).
+    #[default]
+    Performance,
+    /// Prefer power-saving / software rendering (aligns with VOID_SOFTWARE_RENDERING).
+    Efficiency,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

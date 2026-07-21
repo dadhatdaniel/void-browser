@@ -179,7 +179,6 @@ fn raise_webview_hwnd(webview: &tauri::Webview, focus: bool) {
 
     #[cfg(windows)]
     {
-        let focus = focus;
         let _ = webview.with_webview(move |platform| {
             use windows::Win32::Foundation::HWND;
             use windows::Win32::UI::WindowsAndMessaging::{

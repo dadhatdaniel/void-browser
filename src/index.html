@@ -137,6 +137,14 @@
             <label for="compact-mode">Compact Mode</label>
             <input type="checkbox" id="compact-mode">
           </div>
+          <div class="setting-row">
+            <label for="performance-mode">Performance mode</label>
+            <select id="performance-mode">
+              <option value="performance">Performance — GPU / hardware acceleration</option>
+              <option value="efficiency">Efficiency — power-saving / software rendering</option>
+            </select>
+          </div>
+          <p class="setting-desc">Efficiency lowers GPU use (WebView2 disable-gpu / WebKit software path). Restart may be needed for full effect. Default: Performance.</p>
         </section>
 
         <section class="settings-group">
@@ -213,9 +221,9 @@
         <section class="settings-group">
           <h3>About</h3>
           <div class="about-info">
-            <p><strong>Void Browser</strong> v0.1.0-alpha.17</p>
+            <p><strong>Void Browser</strong> v0.1.0-alpha.18</p>
             <p>No tracking. No AI. Just browsing.</p>
-            <p class="about-muted">WebView GPU acceleration enabled when the OS supports it.</p>
+            <p class="about-muted">Performance mode uses GPU when available; Efficiency prefers software rendering.</p>
             <p class="about-muted" id="config-path-display"></p>
             <p class="about-link">github.com/dadhatdaniel/void-browser</p>
           </div>

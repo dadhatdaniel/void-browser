@@ -86,7 +86,7 @@ pub fn on_run_event(app: &AppHandle, event: &RunEvent) {
 fn clear_webview_data(webview: &tauri::Webview, flags: &ClearOnExit) -> Result<(), String> {
     #[cfg(windows)]
     {
-        return clear_webview2(webview, flags);
+        clear_webview2(webview, flags)
     }
     #[cfg(any(
         target_os = "linux",
@@ -96,7 +96,7 @@ fn clear_webview_data(webview: &tauri::Webview, flags: &ClearOnExit) -> Result<(
         target_os = "openbsd"
     ))]
     {
-        return clear_webkit(webview, flags);
+        clear_webkit(webview, flags)
     }
     #[cfg(not(any(
         windows,
