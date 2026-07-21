@@ -47,7 +47,10 @@ fn linux_gpu_needs_software() -> bool {
     if let Ok(modules) = std::fs::read_to_string("/proc/modules") {
         for line in modules.lines() {
             let name = line.split_whitespace().next().unwrap_or("");
-            if matches!(name, "qxl" | "bochs_drm" | "cirrus" | "vboxvideo" | "vmwgfx") {
+            if matches!(
+                name,
+                "qxl" | "bochs_drm" | "cirrus" | "vboxvideo" | "vmwgfx"
+            ) {
                 return true;
             }
         }
@@ -232,10 +235,6 @@ pub fn apply_webkit_acceleration_policy(webview: &tauri::Webview) {
                 HardwareAccelerationPolicy::OnDemand
             };
             settings.set_hardware_acceleration_policy(policy);
-            eprintln!(
-                "[void] WebKitGTK settings: hardware_acceleration_policy={}",
-                if software { "never" } else { "on-demand" }
-            );
         }
     });
 }
