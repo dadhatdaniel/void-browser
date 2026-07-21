@@ -4,6 +4,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod adblock;
+mod adblock_debug;
+mod adblock_intercept;
 mod browser;
 mod clear_on_exit;
 mod config;

@@ -127,6 +127,7 @@ What it does:
 | `new_tab` | Ctrl+T second tab; Ctrl+Shift+Tab switch back; blank fail |
 | `youtube_signin_page` | Load `accounts.google.com/signin` (retries + new tab); **hard fail** if stuck on Void New Tab; **soft_fail** if navigated but live Google/WebView2 challenge hides classic white card |
 | `context_menu` | URL bar clipboard Ctrl+C / Ctrl+V |
+| `adblock_blocks_ads` | Local fixture with fake ad URLs; asserts `VOID_ADBLOCK_DEBUG` network log blocked >=3 expected hosts; writes `network-log.json` |
 | `auto_update` | Fetch GitHub `latest.json` (**fail on 404 / wrong URLs**); stage older portable (default `v0.1.0-alpha.15`); launch → startup quiet check and/or Settings **Check for updates**; assert **Update available** dialog; screenshot; click **Install & Relaunch** |
 
 Default suite runs **all** of the above (in that order). After `download_install`, the harness relaunches on the staged build. `auto_update` runs last so it can temporarily switch to an older build, then restores the previous exe. **Teardown** always runs `uninstall_void_browser` (registry QuietUninstall/`/S`) so the VM does not keep Void Browser installed — even if scenarios fail.
@@ -187,6 +188,26 @@ artifacts/rpa/<YYYYMMDD_HHMMSS>/
   01_....png
   02_...
 ```
+
+
+### Adblock scenario (\dblock_blocks_ads\)
+
+WebView2 does not expose a reliable HAR export to RPA. Instead Void writes a
+**network decision log** when \VOID_ADBLOCK_DEBUG=1\:
+
+1. Relaunches Void with debug logging pointed at the artifact dir.
+2. Serves \	ests/fixtures/adblock/\ on W.0.0.1:<ephemeral>\.
+3. Navigates to the fixture (passive fake ad/tracker URLs matching EasyList patterns).
+4. Asserts >=3 expected ad hosts are \locked\ in the log, and the fixture page still paints.
+5. Writes etwork-log.json\ for diagnosis (not a Chromium HAR).
+
+\\powershell
+.\\scripts\\run-rpa-windows.ps1 -Build -Scenarios adblock_blocks_ads
+# or remote:
+.\\scripts\\rpa-remote-run.ps1 -SyncRepo -Scenarios adblock_blocks_ads
+\
+Requires a build that includes WebView2 \WebResourceRequested\ interception (this
+fix). Older portables will produce an empty log and fail with a rebuild hint.
 
 After a remote run, the same tree appears under the local repo (and optionally
 `Z:\void-rpa-artifacts\<stamp>\`).

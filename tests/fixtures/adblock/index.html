@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Void Adblock Fixture</title>
+  <style>
+    body { font-family: Georgia, "Times New Roman", serif; margin: 2rem; background: #f7f4ef; color: #1a1a1a; }
+    h1 { font-size: 1.6rem; }
+    #status { font-weight: bold; }
+    .ok { color: #0a5; }
+    .fail { color: #a20; }
+    img.pixel { width: 16px; height: 16px; background: #0a5; }
+  </style>
+</head>
+<body>
+  <h1>Void Adblock Fixture</h1>
+  <p id="status">ADBLOCK_FIXTURE_READY</p>
+  <p>Local content must load. Third-party ad/tracker URLs below are passive probes only.</p>
+
+  <!-- Allowed same-origin asset -->
+  <img class="pixel" id="legit-pixel" src="/pixel.png" alt="legit" />
+
+  <!-- Expected BLOCKED by easylist-minimal / TRACKER_DOMAINS (passive test URLs) -->
+  <img src="https://pagead2.googlesyndication.com/pagead/ads?void_fixture=1" alt="" width="1" height="1" />
+  <img src="https://doubleclick.net/ddm/void-fixture.gif" alt="" width="1" height="1" />
+  <img src="https://bat.bing.com/action/0?void_fixture=1" alt="" width="1" height="1" />
+  <script src="https://www.google-analytics.com/analytics.js"></script>
+  <script src="https://googletagmanager.com/gtm.js?id=void-fixture"></script>
+  <script src="https://connect.facebook.net/en_US/fbevents.js"></script>
+
+  <script>
+    (function () {
+      var probes = [
+        "https://pagead2.googlesyndication.com/pagead/ads?void_fixture=fetch",
+        "https://www.google-analytics.com/g/collect?void_fixture=1",
+        "https://doubleclick.net/ddm/void-fixture-fetch",
+        "https://criteo.com/void-fixture.js"
+      ];
+      var blocked = 0;
+      var allowed = 0;
+      var pending = probes.length;
+
+      function done() {
+        var el = document.getElementById("status");
+        el.textContent = "ADBLOCK_FIXTURE_DONE blocked_fetch=" + blocked + " allowed_fetch=" + allowed;
+        el.className = blocked >= 3 ? "ok" : "fail";
+        document.title = "Void Adblock Fixture | done blocked=" + blocked;
+      }
+
+      probes.forEach(function (url) {
+        fetch(url, { mode: "no-cors", cache: "no-store" })
+          .then(function () { allowed += 1; })
+          .catch(function () { blocked += 1; })
+          .finally(function () {
+            pending -= 1;
+            if (pending === 0) done();
+          });
+      });
+
+      setTimeout(function () {
+        if (pending > 0) {
+          pending = 0;
+          done();
+        }
+      }, 8000);
+    })();
+  </script>
+</body>
+</html>

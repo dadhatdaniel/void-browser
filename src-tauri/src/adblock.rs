@@ -7,6 +7,7 @@ use adblock::{Engine, FilterSet};
 use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::adblock_debug;
 use crate::config::VoidConfig;
 use crate::privacy::BLOCKED_TELEMETRY_DOMAINS;
 
@@ -72,21 +73,36 @@ impl AdBlocker {
         }
     }
 
-    /// Check if a URL should be blocked
+    /// Check if a URL should be blocked (resource type `other`).
     pub fn check(&self, url: &str, source_url: &str) -> MatchResult {
+        self.check_typed(url, source_url, "other")
+    }
+
+    /// Check with an adblock-rust resource type (`script`, `image`, `document`, …).
+    pub fn check_typed(&self, url: &str, source_url: &str, resource_type: &str) -> MatchResult {
         self.total_checked.fetch_add(1, Ordering::Relaxed);
 
-        let Ok(request) = Request::new(url, source_url, "other") else {
-            return MatchResult {
+        let Ok(request) = Request::new(url, source_url, resource_type) else {
+            let result = MatchResult {
                 matched: false,
                 filter: None,
             };
+            adblock_debug::record(url, source_url, resource_type, false, None);
+            return result;
         };
         let result = self.engine.check_network_request(&request);
 
         if result.matched {
             self.total_blocked.fetch_add(1, Ordering::Relaxed);
         }
+
+        adblock_debug::record(
+            url,
+            source_url,
+            resource_type,
+            result.matched,
+            result.filter.clone(),
+        );
 
         MatchResult {
             matched: result.matched,
@@ -146,3 +162,30 @@ pub const TRACKER_DOMAINS: &[&str] = &[
     "criteo.com",
     "adroll.com",
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::VoidConfig;
+
+    #[test]
+    fn blocks_common_ad_hosts() {
+        let cfg = VoidConfig {
+            adblock_enabled: true,
+            ..VoidConfig::default()
+        };
+        let blocker = AdBlocker::new(&cfg);
+        let source = "http://127.0.0.1:9/adblock-test.html";
+        for url in [
+            "https://pagead2.googlesyndication.com/pagead/ads?test=1",
+            "https://www.google-analytics.com/analytics.js",
+            "https://doubleclick.net/ddm/test.js",
+            "https://bat.bing.com/action/0",
+        ] {
+            let r = blocker.check_typed(url, source, "script");
+            assert!(r.matched, "expected block for {url}");
+        }
+        let ok = blocker.check_typed("http://127.0.0.1:9/pixel.png", source, "image");
+        assert!(!ok.matched, "local fixture asset must not be blocked");
+    }
+}

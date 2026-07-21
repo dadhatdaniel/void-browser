@@ -122,6 +122,13 @@ class RpaSession:
         # Always disable clear_on_exit under RPA unless the suite opts out.
         if os.environ.get(VOID_DISABLE_CLEAR_ON_EXIT_ENV, "1").strip() != "0":
             env[VOID_DISABLE_CLEAR_ON_EXIT_ENV] = "1"
+        # Adblock decision log (VOID_ADBLOCK_DEBUG=1 → JSONL + snapshot JSON).
+        dbg = os.environ.get("VOID_ADBLOCK_DEBUG", "").strip()
+        if dbg:
+            env["VOID_ADBLOCK_DEBUG"] = dbg
+        log_path = os.environ.get("VOID_ADBLOCK_DEBUG_LOG", "").strip()
+        if log_path:
+            env["VOID_ADBLOCK_DEBUG_LOG"] = log_path
         return env
 
     def start(
@@ -2102,6 +2109,286 @@ def scenario_auto_update(s: RpaSession) -> ScenarioResult:
             pass
 
 
+
+def scenario_adblock_blocks_ads(s: RpaSession) -> ScenarioResult:
+    """
+    Local ad-heavy fixture + VOID_ADBLOCK_DEBUG network log.
+
+    Serves tests/fixtures/adblock/ over 127.0.0.1, navigates Void to it with
+    adblock debug logging enabled, then asserts expected third-party ad/tracker
+    hosts appear as blocked in the JSON network log (not a WebView2 HAR dump).
+
+    Artifacts: network-log.json (+ copy of void-adblock-debug.jsonl) under out_dir.
+    """
+    import http.server
+    import socketserver
+    import threading
+    from urllib.parse import urlparse
+
+    steps: list[Step] = []
+    t0 = time.time()
+    fixture_dir = ROOT / "tests" / "fixtures" / "adblock"
+    expected_hosts = (
+        "googlesyndication.com",
+        "doubleclick.net",
+        "google-analytics.com",
+        "googletagmanager.com",
+        "bat.bing.com",
+        "facebook.net",
+        "criteo.com",
+    )
+
+    if not (fixture_dir / "index.html").is_file():
+        return ScenarioResult(
+            "adblock_blocks_ads",
+            False,
+            [Step("fixture_present", False, f"missing {fixture_dir}", None)],
+            error="adblock fixture missing",
+            duration_sec=time.time() - t0,
+        )
+
+    log_path = s.out_dir / "void-adblock-debug.jsonl"
+    snapshot_path = s.out_dir / "void-adblock-debug.json"
+    log_path.write_text("", encoding="utf-8")
+    snapshot_path.write_text(
+        json.dumps({"ok": True, "entries": [], "blocked": 0, "allowed": 0}),
+        encoding="utf-8",
+    )
+
+    prev_dbg = os.environ.get("VOID_ADBLOCK_DEBUG")
+    prev_log = os.environ.get("VOID_ADBLOCK_DEBUG_LOG")
+    os.environ["VOID_ADBLOCK_DEBUG"] = "1"
+    os.environ["VOID_ADBLOCK_DEBUG_LOG"] = str(log_path)
+
+    httpd = None
+    port = 0
+    try:
+        class _Handler(http.server.SimpleHTTPRequestHandler):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, directory=str(fixture_dir), **kwargs)
+
+            def log_message(self, fmt, *args):  # noqa: A003
+                return
+
+        httpd = socketserver.ThreadingTCPServer(("127.0.0.1", 0), _Handler)
+        httpd.allow_reuse_address = True
+        port = int(httpd.server_address[1])
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        fixture_url = f"http://127.0.0.1:{port}/index.html"
+        steps.append(Step("fixture_server", True, fixture_url, None))
+
+        try:
+            s.stop()
+        except Exception:  # noqa: BLE001
+            pass
+        time.sleep(0.8)
+        s.start()
+        steps.append(
+            Step(
+                "relaunch_with_adblock_debug",
+                s.alive(),
+                f"VOID_ADBLOCK_DEBUG=1 log={log_path}",
+                s.shot("adblock_relaunch") if s.alive() else None,
+            )
+        )
+        if not s.alive():
+            return ScenarioResult(
+                "adblock_blocks_ads",
+                False,
+                steps,
+                error="process died on relaunch",
+                duration_sec=time.time() - t0,
+            )
+
+        s.navigate(fixture_url, settle=4.0)
+        shot = s.shot("adblock_fixture")
+        title = s.window_title()
+        painted = False
+        try:
+            info = analyze_content_region(s.shot_path(shot))
+            painted = (not info.get("blank")) and float(info.get("mean") or 0) >= 30.0
+        except Exception:  # noqa: BLE001
+            painted = False
+        page_ok = painted or ("adblock" in title.lower()) or ("fixture" in title.lower())
+        steps.append(
+            Step(
+                "navigate_fixture",
+                page_ok,
+                f"title={title!r}; painted={painted}; url={fixture_url}",
+                shot,
+            )
+        )
+
+        time.sleep(3.0)
+
+        entries: list[dict[str, Any]] = []
+        if snapshot_path.is_file():
+            try:
+                snap = json.loads(snapshot_path.read_text(encoding="utf-8"))
+                entries = list(snap.get("entries") or [])
+            except Exception:  # noqa: BLE001
+                entries = []
+        if not entries and log_path.is_file():
+            for line in log_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except Exception:  # noqa: BLE001
+                    pass
+
+        blocked_urls = [
+            str(e.get("url") or "")
+            for e in entries
+            if str(e.get("decision") or "").lower() == "blocked"
+        ]
+        allowed_urls = [
+            str(e.get("url") or "")
+            for e in entries
+            if str(e.get("decision") or "").lower() == "allowed"
+        ]
+
+        def _host(u: str) -> str:
+            try:
+                return (urlparse(u).hostname or "").lower()
+            except Exception:  # noqa: BLE001
+                return ""
+
+        blocked_hosts = {_host(u) for u in blocked_urls if u}
+        hit_hosts = sorted(
+            h
+            for h in expected_hosts
+            if any(h == bh or bh.endswith("." + h) for bh in blocked_hosts)
+        )
+        local_blocked = [
+            u for u in blocked_urls if "127.0.0.1" in u or "localhost" in u
+        ]
+        fixture_allowed = any(
+            f"127.0.0.1:{port}" in u and ("index.html" in u or "pixel.png" in u)
+            for u in allowed_urls
+        )
+
+        artifact_path = s.out_dir / "network-log.json"
+        network_artifact = {
+            "ok": len(hit_hosts) >= 3 and not local_blocked,
+            "fixture_url": fixture_url,
+            "expected_hosts": list(expected_hosts),
+            "blocked_hosts_matched": hit_hosts,
+            "blocked_count": len(blocked_urls),
+            "allowed_count": len(allowed_urls),
+            "local_blocked": local_blocked,
+            "fixture_content_allowed": fixture_allowed or page_ok,
+            "entries": entries,
+            "note": (
+                "Void adblock network decision log (VOID_ADBLOCK_DEBUG). "
+                "Not a Chromium HAR — WebView2 does not expose HAR to RPA reliably."
+            ),
+        }
+        artifact_path.write_text(json.dumps(network_artifact, indent=2), encoding="utf-8")
+        if log_path.is_file():
+            try:
+                (s.out_dir / "adblock-debug.jsonl").write_text(
+                    log_path.read_text(encoding="utf-8"), encoding="utf-8"
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+        enough_blocks = len(hit_hosts) >= 3
+        steps.append(
+            Step(
+                "assert_ads_blocked",
+                enough_blocks,
+                (
+                    f"matched_hosts={hit_hosts}; blocked={len(blocked_urls)}; "
+                    f"allowed={len(allowed_urls)}; artifact={artifact_path.name}"
+                ),
+                None,
+            )
+        )
+        steps.append(
+            Step(
+                "assert_page_content_ok",
+                page_ok and not local_blocked,
+                (
+                    f"page_ok={page_ok}; fixture_allowed_signal={fixture_allowed}; "
+                    f"local_blocked={local_blocked[:3]}"
+                ),
+                None,
+            )
+        )
+
+        if not enough_blocks and not entries:
+            steps.append(
+                Step(
+                    "hint_build_required",
+                    False,
+                    (
+                        "No adblock debug entries — build may predate WebResourceRequested "
+                        "interception / VOID_ADBLOCK_DEBUG. Rebuild void-browser.exe from main."
+                    ),
+                    None,
+                )
+            )
+
+        ok = s.alive() and all(
+            st.ok for st in steps if st.name != "hint_build_required"
+        )
+        if not entries:
+            ok = False
+        return ScenarioResult(
+            "adblock_blocks_ads",
+            ok,
+            steps,
+            error=None
+            if ok
+            else (
+                "expected ad hosts not blocked in network-log.json "
+                f"(matched {hit_hosts}; see {artifact_path.name})"
+            ),
+            duration_sec=time.time() - t0,
+        )
+    except Exception as e:  # noqa: BLE001
+        try:
+            fail_shot = s.shot("adblock_fail")
+        except Exception:  # noqa: BLE001
+            fail_shot = None
+        steps.append(Step("adblock_blocks_ads", False, str(e), fail_shot))
+        return ScenarioResult(
+            "adblock_blocks_ads",
+            False,
+            steps,
+            error=str(e),
+            duration_sec=time.time() - t0,
+        )
+    finally:
+        if httpd is not None:
+            try:
+                httpd.shutdown()
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                httpd.server_close()
+            except Exception:  # noqa: BLE001
+                pass
+        if prev_dbg is None:
+            os.environ.pop("VOID_ADBLOCK_DEBUG", None)
+        else:
+            os.environ["VOID_ADBLOCK_DEBUG"] = prev_dbg
+        if prev_log is None:
+            os.environ.pop("VOID_ADBLOCK_DEBUG_LOG", None)
+        else:
+            os.environ["VOID_ADBLOCK_DEBUG_LOG"] = prev_log
+        try:
+            if s.alive():
+                s.stop()
+            time.sleep(0.5)
+            s.start()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 SCENARIOS: dict[str, Callable[[RpaSession], ScenarioResult]] = {
     "download_install": scenario_download_install,
     "app_launch": scenario_app_launch,
@@ -2112,6 +2399,7 @@ SCENARIOS: dict[str, Callable[[RpaSession], ScenarioResult]] = {
     "new_tab": scenario_new_tab,
     "youtube_signin_page": scenario_youtube_signin_page,
     "context_menu": scenario_context_menu,
+    "adblock_blocks_ads": scenario_adblock_blocks_ads,
     "auto_update": scenario_auto_update,
 }
 
@@ -2167,7 +2455,8 @@ def _run_scenario_with_timeout(
 
 DEFAULT_SCENARIOS = (
     "download_install,app_launch,smoke_navigate,nav_history,visit_void_site,"
-    "settings_preserves_tab,new_tab,youtube_signin_page,context_menu,auto_update"
+    "settings_preserves_tab,new_tab,youtube_signin_page,context_menu,"
+    "adblock_blocks_ads,auto_update"
 )
 
 VOID_DISPLAY_NAME = "void browser"

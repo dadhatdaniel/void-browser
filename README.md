@@ -41,7 +41,7 @@ shasum -a 256 --check CHECKSUMS.sha256  # macOS
 
 ## Features
 
-- 🛡️ **Built-in ad blocker** — Powered by adblock-rust (same engine as Brave), 137K+ filter rules
+- 🛡️ **Built-in ad blocker** — Powered by adblock-rust (same engine as Brave); on Windows, WebView2 `WebResourceRequested` intercepts subresource ads/trackers (not just main-frame navigations)
 - 🔒 **HTTPS-only mode** — Insecure connections blocked by default
 - 👻 **Anti-fingerprinting** — Canvas, WebGL, AudioContext resistance
 - 🚫 **Zero telemetry** — Nothing leaves your machine. Ever.

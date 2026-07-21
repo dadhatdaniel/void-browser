@@ -492,7 +492,7 @@ fn attach_content_webview(
             if should_block_main_frame(&url_str) {
                 if let Some(state) = app_for_nav.try_state::<AppState>() {
                     if let Ok(engine) = state.blocker.lock() {
-                        let _ = engine.check(&url_str, &url_str);
+                        let _ = engine.check_typed(&url_str, &url_str, "document");
                         let _ = app_for_nav.emit("block-stats-updated", engine.stats());
                     }
                 }
@@ -503,7 +503,8 @@ fn attach_content_webview(
                     mgr.set_url(&tab_id_for_nav, &url_str);
                 }
                 if let Ok(engine) = state.blocker.lock() {
-                    let _ = engine.check(&url_str, &url_str);
+                    // Document navigations are primarily gated above; still count + debug-log.
+                    let _ = engine.check_typed(&url_str, &url_str, "document");
                     let _ = app_for_nav.emit("block-stats-updated", engine.stats());
                 }
             }
@@ -570,6 +571,9 @@ fn attach_content_webview(
         .map_err(|e| e.to_string())?;
     apply_webview_bounds(&webview, pos, size)?;
     force_webview_visible(&webview);
+    // Subresource ad/tracker blocking (WebView2 WebResourceRequested). Without this,
+    // adblock-rust only saw main-frame navigations and ads loaded freely.
+    crate::adblock_intercept::attach(&webview, app.clone());
 
     browser
         .content_tabs
@@ -603,7 +607,7 @@ pub async fn navigate_browser(
 
     {
         let engine = state.blocker.lock().map_err(|e| e.to_string())?;
-        let _ = engine.check(&url, &url); // count toward stats
+        let _ = engine.check_typed(&url, &url, "document");
         if should_block_main_frame(&url) {
             let _ = app.emit("block-stats-updated", engine.stats());
             return Err("Blocked tracker/telemetry destination".into());
