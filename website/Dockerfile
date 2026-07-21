@@ -32,6 +32,8 @@ server {
     root /usr/share/nginx/html;
     index index.html;
     server_tokens off;
+    charset utf-8;
+    charset_types text/html text/css application/javascript application/json text/plain;
 
     # Security headers
     add_header X-Frame-Options "DENY" always;

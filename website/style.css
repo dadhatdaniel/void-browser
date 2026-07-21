@@ -17,9 +17,9 @@
   --muted: #555;
   --task-h: 30px;
   --dev-h: 28px;
-  --font-bios: "VT323", "IBM Plex Mono", ui-monospace, monospace;
-  --font-ui: Tahoma, "IBM Plex Sans", "Segoe UI", sans-serif;
-  --font-mono: "IBM Plex Mono", Consolas, ui-monospace, monospace;
+  --font-bios: "VT323", Consolas, "Courier New", ui-monospace, monospace;
+  --font-ui: Tahoma, "Segoe UI", "Microsoft Sans Serif", sans-serif;
+  --font-mono: Consolas, "Lucida Console", ui-monospace, monospace;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -123,64 +123,76 @@ body.is-prod { --dev-h: 0px; }
 .load-panel {
   position: absolute;
   left: 50%;
-  top: 42%;
+  top: 44%;
   transform: translate(-50%, -50%);
   text-align: center;
   color: #0d2a4a;
-  padding: 1.5rem 2rem;
-  min-width: min(320px, 90vw);
-  background: rgba(255, 255, 255, 0.18);
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  border-radius: 6px;
-  backdrop-filter: blur(6px);
-  box-shadow: 0 8px 28px rgba(0, 30, 60, 0.25);
+  padding: 1.75rem 2.25rem 1.5rem;
+  min-width: min(360px, 92vw);
+  background: rgba(255, 255, 255, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 4px;
+  backdrop-filter: blur(5px);
+  box-shadow: 0 10px 32px rgba(0, 30, 60, 0.28);
 }
 .load-mark {
   display: inline-flex;
-  margin-bottom: 0.5rem;
-  filter: drop-shadow(0 2px 4px rgba(0, 40, 80, 0.25));
+  margin-bottom: 0.65rem;
+  filter: drop-shadow(0 2px 4px rgba(0, 40, 80, 0.3));
 }
+.load-mark .xp-flag { display: block; }
 .load-title {
   margin: 0;
-  font-size: clamp(2rem, 5vw, 2.75rem);
+  font-size: clamp(1.85rem, 4.5vw, 2.5rem);
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
   color: #0a246a;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+  font-family: Tahoma, "Segoe UI", sans-serif;
 }
 .load-sub {
-  margin: 0.35rem 0 1.25rem;
-  font-size: 0.95rem;
+  margin: 0.4rem 0 1.35rem;
+  font-size: 0.9rem;
   color: #1a3a5c;
-  opacity: 0.9;
+  opacity: 0.92;
 }
+/* Classic XP chunky green progress chunks */
 .load-bar {
-  width: min(280px, 70vw);
-  height: 18px;
+  width: min(300px, 72vw);
+  height: 22px;
   margin: 0 auto;
+  padding: 3px;
   background: #fff;
-  border: 2px solid #0a246a;
+  border: 2px solid #003c74;
   border-radius: 2px;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+.load-bar-track {
+  height: 100%;
+  width: 100%;
   overflow: hidden;
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.15);
+  background: #e8eef8;
 }
 .load-bar-fill {
   height: 100%;
   width: 0%;
-  background: linear-gradient(90deg, #245edc, #5b9aff 50%, #245edc);
-  background-size: 200% 100%;
-  transition: width 0.2s linear;
-  animation: bar-shine 1.4s linear infinite;
-}
-@keyframes bar-shine {
-  0% { background-position: 100% 0; }
-  100% { background-position: -100% 0; }
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.45) 0%, transparent 45%, rgba(0,0,0,0.12) 100%),
+    repeating-linear-gradient(
+      90deg,
+      #2cf02c 0 10px,
+      #18c818 10px 12px,
+      transparent 12px 14px
+    ),
+    linear-gradient(180deg, #3ad03a 0%, #1a9a1a 55%, #0e7010 100%);
+  background-color: #245edc;
+  transition: width 0.15s linear;
 }
 .load-hint {
   margin: 1rem 0 0;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   color: #1a3a5c;
-  opacity: 0.6;
+  opacity: 0.55;
 }
 
 /* ========== LOGIN ========== */
@@ -210,18 +222,19 @@ body.is-prod { --dev-h: 0px; }
 .login-card {
   position: absolute;
   left: 50%;
-  top: 48%;
+  top: 46%;
   transform: translate(-50%, -50%);
   z-index: 2;
-  width: min(340px, 92vw);
-  padding: 1.75rem 1.5rem 1.5rem;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 8px;
+  width: min(360px, 92vw);
+  padding: 1.85rem 1.6rem 1.55rem;
+  background: linear-gradient(180deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.08) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 6px;
   text-align: center;
   color: #fff;
-  backdrop-filter: blur(8px);
-  box-shadow: 0 8px 32px rgba(0, 20, 60, 0.35);
+  backdrop-filter: blur(7px);
+  box-shadow: 0 10px 36px rgba(0, 20, 60, 0.4);
+  font-family: Tahoma, "Segoe UI", sans-serif;
 }
 .login-avatar {
   display: inline-flex;
@@ -244,19 +257,42 @@ body.is-prod { --dev-h: 0px; }
 .login-btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.45rem 1.4rem;
+  gap: 0.65rem;
+  padding: 0.35rem 0.85rem 0.35rem 0.4rem;
   font-size: 0.95rem;
   font-weight: 600;
-  color: #0a246a;
-  background: linear-gradient(180deg, #fff 0%, #dce6f5 100%);
-  border: 1px solid #0a246a;
-  border-radius: 3px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  color: #fff;
+  background: linear-gradient(180deg, #6fd05a 0%, #3c9a2e 42%, #2a7a1c 100%);
+  border: 1px solid #1a5010;
+  border-radius: 4px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 2px 4px rgba(0, 0, 0, 0.25);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
 }
-.login-btn:hover { background: linear-gradient(180deg, #fff 0%, #c8daf0 100%); }
-.login-btn:active { background: #c8daf0; }
-.login-btn svg { stroke: currentColor; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.login-btn:hover { filter: brightness(1.08); }
+.login-btn:active { filter: brightness(0.95); }
+.login-go {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #8ae070 0%, #3c9a2e 55%, #246818 100%);
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #1a5010, inset 0 1px 0 rgba(255,255,255,0.4);
+  position: relative;
+  flex-shrink: 0;
+}
+.login-go::after {
+  content: "";
+  position: absolute;
+  left: 11px; top: 9px;
+  width: 0; height: 0;
+  border-style: solid;
+  border-width: 7px 0 7px 12px;
+  border-color: transparent transparent transparent #fff;
+  filter: drop-shadow(1px 1px 0 rgba(0,0,0,0.25));
+}
+.login-btn-label { padding-right: 0.35rem; letter-spacing: 0.01em; }
 .login-tip { margin: 1rem 0 0; font-size: 0.7rem; opacity: 0.65; }
 .login-foot {
   position: absolute;
@@ -505,14 +541,45 @@ body.is-prod { --dev-h: 0px; }
   width: 21px;
   height: 21px;
   padding: 0;
-  font-size: 11px;
-  line-height: 1;
-  font-weight: 700;
+  position: relative;
   color: #fff;
   background: linear-gradient(180deg, #3a7bd5 0%, #1a4a9a 100%);
   border: 1px solid #fff;
   border-radius: 3px;
   box-shadow: inset 0 0 0 1px #0a246a;
+}
+.win-btn i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  pointer-events: none;
+}
+.win-btn.min i::before {
+  content: "";
+  position: absolute;
+  left: 4px; right: 4px; bottom: 5px;
+  height: 2px;
+  background: #fff;
+}
+.win-btn.max i::before {
+  content: "";
+  position: absolute;
+  left: 5px; right: 5px; top: 5px; bottom: 5px;
+  border: 1px solid #fff;
+  border-top-width: 3px;
+}
+.win-btn.close i::before,
+.win-btn.close i::after {
+  content: "";
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 11px; height: 2px;
+  background: #fff;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+.win-btn.close i::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
 }
 .win-btn:hover { filter: brightness(1.12); }
 .win-btn.close {
@@ -856,23 +923,15 @@ body.is-prod { --dev-h: 0px; }
   width: 18px;
   height: 18px;
   border-radius: 2px;
-  background: linear-gradient(145deg, #c8e4ff 0%, #1a3a6e 100%);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
-  position: relative;
-}
-.start-mark::after {
-  content: "V";
-  position: absolute;
-  inset: 0;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
-  font-weight: 700;
-  font-style: normal;
-  color: #fff;
-  text-shadow: none;
+  background: rgba(0, 0, 0, 0.15);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
 }
+.start-mark .xp-flag { display: block; width: 14px; height: 14px; }
+.start-mark::after { content: none; }
 .start-label { letter-spacing: 0.02em; }
 
 .task-tabs {
@@ -1058,10 +1117,27 @@ body.is-prod { --dev-h: 0px; }
 }
 .assistant-bubble p { margin: 0 0 0.5rem; }
 .assistant-clip {
-  font-size: 42px;
+  font-size: inherit;
   filter: drop-shadow(1px 2px 2px rgba(0, 0, 0, 0.3));
-  transform: rotate(-12deg);
+  transform: rotate(-8deg);
   user-select: none;
+  line-height: 0;
+}
+.clippy-svg { display: block; }
+.assistant-bubble { position: relative; }
+.assistant-bubble::after {
+  content: "";
+  position: absolute;
+  right: -8px; bottom: 18px;
+  border-style: solid;
+  border-width: 8px 0 8px 10px;
+  border-color: transparent transparent transparent #ffffcc;
+  filter: drop-shadow(1px 0 0 #aa9900);
+}
+.welcome-hero .xp-flag {
+  display: block;
+  margin-bottom: 0.5rem;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2));
 }
 
 .toast {
@@ -1079,9 +1155,75 @@ body.is-prod { --dev-h: 0px; }
 }
 .toast[hidden] { display: none !important; }
 
+
+/* --- XP chrome icons (no unicode) --- */
+.nav-ico {
+  display: inline-block;
+  width: 0; height: 0;
+  border-style: solid;
+  vertical-align: middle;
+}
+.nav-ico.back {
+  border-width: 5px 8px 5px 0;
+  border-color: transparent #333 transparent transparent;
+}
+.nav-ico.fwd {
+  border-width: 5px 0 5px 8px;
+  border-color: transparent transparent transparent #333;
+}
+.nav-ico.refresh {
+  width: 10px; height: 10px;
+  border: 2px solid #333;
+  border-right-color: transparent;
+  border-radius: 50%;
+  position: relative;
+}
+.nav-ico.refresh::after {
+  content: "";
+  position: absolute;
+  right: -2px; top: -3px;
+  border-style: solid;
+  border-width: 0 0 5px 5px;
+  border-color: transparent transparent #333 transparent;
+}
+.addr-lock {
+  display: inline-block;
+  width: 10px; height: 8px;
+  margin-right: 2px;
+  border: 1.5px solid #2a7a2a;
+  border-radius: 2px;
+  position: relative;
+  vertical-align: middle;
+  background: #e8f8e8;
+}
+.addr-lock::before {
+  content: "";
+  position: absolute;
+  left: 2px; top: -5px;
+  width: 4px; height: 4px;
+  border: 1.5px solid #2a7a2a;
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+}
+.vol-ico {
+  display: inline-block;
+  width: 8px; height: 8px;
+  background: #fff;
+  border-radius: 1px;
+  position: relative;
+}
+.vol-ico::after {
+  content: "";
+  position: absolute;
+  left: 7px; top: 0;
+  border-style: solid;
+  border-width: 4px 0 4px 6px;
+  border-color: transparent transparent transparent #fff;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .stage { transition: none; }
-  .load-bar-fill { animation: none; }
+  .load-bar-fill { transition: none; }
   .bios-hint, .bsod-blink { animation: none; }
 }
 

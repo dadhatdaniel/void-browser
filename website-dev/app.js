@@ -1,4 +1,4 @@
-/* VOID OS — theatrical boot + desktop shell + easter eggs */
+/* VOID OS - theatrical boot + desktop shell + easter eggs */
 
 (function () {
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -87,8 +87,8 @@
 
   /* ---------- BIOS (slow / readable) ---------- */
   const biosLines = [
-    { t: "VOID BIOS v1.0 — Theatrical Edition", cls: "hi", d: 0 },
-    { t: "Copyright (C) 2026 Void Labs — fictional firmware", cls: "dim", d: 420 },
+    { t: "VOID BIOS v1.0 - Theatrical Edition", cls: "hi", d: 0 },
+    { t: "Copyright (C) 2026 Void Labs - fictional firmware", cls: "dim", d: 420 },
     { t: "", d: 220 },
     { t: "CPU: Local Wrapper Core @ honest MHz", d: 520 },
     { t: "Memory Test:  ", d: 580 },
@@ -113,7 +113,7 @@
     { t: "", d: 240 },
     { t: "Press Esc or click to skip POST", cls: "dim", d: 480 },
     { t: "", d: 200 },
-    { t: "Loading VOID OS...", cls: "hi", d: 900 },
+    { t: "Loading VOID OS...", cls: "hi", d: 700 },
   ];
 
   function runBios() {
@@ -506,7 +506,7 @@
       startClicks += 1;
       if (startClicks === 7) {
         startClicks = 0;
-        showToast("Start menu secret: Konami still works. So does Shift×5.");
+        showToast("Start menu secret: Konami still works. So does Shift x5.");
         showBsod();
         return;
       }
@@ -571,7 +571,7 @@
     const f = fortunes[Math.floor(Math.random() * fortunes.length)];
     const lines = [
       "Microsoft Windows XP [Version VOID.1.0]",
-      "(C) Void Labs — not affiliated with Microsoft.",
+      "(C) Void Labs - not affiliated with Microsoft.",
       "",
       "C:\\Users\\Guest> fortune",
       f,
@@ -596,7 +596,7 @@
       // single click: mild toast
       if (e.detail === 1) {
         setTimeout(() => {
-          if (e.detail === 1) showToast("Recycle Bin — double-click to empty the void");
+          if (e.detail === 1) showToast("Recycle Bin - double-click to empty the void");
         }, 280);
       }
     });
@@ -628,7 +628,7 @@
       volClicks += 1;
       if (volClicks === 1) showToast("Volume: muted trackers, unmuted honesty.");
       else if (volClicks === 3) {
-        showToast("System sound: tada.wav not found — playing silence.exe");
+        showToast("System sound: tada.wav not found - playing silence.exe");
         volClicks = 0;
       }
     });
@@ -711,41 +711,54 @@
     }
   }
 
-  // VOID Assistant (paperclip-adjacent, no Clippy IP)
+    // VOID Assistant (paperclip homage SVG - not Microsoft Clippy IP)
+  let asstTimer = null;
   function showAssistant(force) {
     const el = document.getElementById("void-assistant");
     if (!el) return;
     const text = document.getElementById("assistant-text");
     const lines = [
-      "It looks like you’re browsing without tracking. Want help staying that way?",
-      "I see you’re about to open a browser. Have you tried… just opening Void?",
-      "Tip: Esc skips the boot. Your time is finite. Telemetry isn’t invited.",
+      "It looks like you're browsing without tracking. Want help staying that way?",
+      "I see you're about to open a browser. Have you tried... just opening Void?",
+      "Tip: Esc skips the boot. Your time is finite. Telemetry isn't invited.",
     ];
     if (text) text.textContent = lines[Math.floor(Math.random() * lines.length)];
     el.hidden = false;
+    el.style.display = "flex";
+    el.setAttribute("aria-hidden", "false");
     if (!force) {
       try { sessionStorage.setItem("void-asst-shown", "1"); } catch (_) {}
     }
+  }
+  function hideAssistant() {
+    const el = document.getElementById("void-assistant");
+    if (!el) return;
+    el.hidden = true;
+    el.style.display = "";
+    el.setAttribute("aria-hidden", "true");
   }
   function maybeShowAssistantOnce() {
     try {
       if (sessionStorage.getItem("void-asst-shown")) return;
     } catch (_) {}
-    later(() => showAssistant(false), 4500);
+    // Independent timer - must NOT go through later()/clearTimers()
+    if (asstTimer) clearTimeout(asstTimer);
+    asstTimer = setTimeout(() => {
+      asstTimer = null;
+      if (current === "desktop") showAssistant(false);
+    }, 1800);
   }
   const asstDismiss = document.getElementById("assistant-dismiss");
   if (asstDismiss) {
     asstDismiss.addEventListener("click", () => {
-      const el = document.getElementById("void-assistant");
-      if (el) el.hidden = true;
+      hideAssistant();
     });
   }
 
   function hideOverlaysSoft() {
     hideEmptyVoid();
     hideSticky();
-    const asst = document.getElementById("void-assistant");
-    if (asst) asst.hidden = true;
+    hideAssistant();
   }
 
   /* releases.json */

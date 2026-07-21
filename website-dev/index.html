@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>VOID OS — local wrapper (dev preview)</title>
+  <title>VOID OS - local wrapper (dev preview)</title>
   <meta name="description" content="Void is an honest browser wrapper: WebView2 on Windows, WebKit on Linux. No tracking, no AI, no phone-home. LAN preview.">
   <meta name="robots" content="noindex, nofollow, noai, noimageai">
   <meta name="theme-color" content="#245edc">
@@ -15,13 +15,13 @@
   <link rel="manifest" href="/manifest.json">
 
   <link rel="preconnect" href="https://fonts.bunny.net" crossorigin>
-  <link href="https://fonts.bunny.net/css?family=vt323:400|ibm-plex-sans:400,500,600,700|ibm-plex-mono:400,500" rel="stylesheet">
+  <link href="https://fonts.bunny.net/css?family=vt323:400" rel="stylesheet">
 
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="dev-strip" role="status">
-    DEV PREVIEW · LAN :5081 · prod untouched on :5080
+    DEV PREVIEW | LAN :5081 | prod untouched on :5080
     <span class="dev-skip-hint">Esc / ?skip=1 to skip boot</span>
   </div>
 
@@ -37,17 +37,11 @@
   <section class="stage stage-load" id="stage-load" aria-label="VOID OS loading" data-stage="load" hidden>
     <div class="load-sky bliss-bg" aria-hidden="true"></div>
     <div class="load-panel">
-      <div class="load-mark" aria-hidden="true">
-        <svg viewBox="0 0 64 64" width="56" height="56">
-          <rect x="4" y="4" width="56" height="56" rx="4" fill="#1a3a6e"/>
-          <path d="M16 44 V20 H28 C36 20 40 24 40 30 C40 36 36 40 28 40 H22 V44 Z M22 34 H27 C30 34 32 32.5 32 30 C32 27.5 30 26 27 26 H22 Z" fill="#c8e4ff"/>
-          <circle cx="46" cy="42" r="6" fill="none" stroke="#7eb8f0" stroke-width="3"/>
-        </svg>
-      </div>
+      <div class="load-mark" aria-hidden="true"><svg class="xp-flag" viewBox="0 0 32 32" width="64" height="64" aria-hidden="true" focusable="false"><rect x="1" y="1" width="14" height="14" rx="1" fill="#f44e25"/><rect x="17" y="1" width="14" height="14" rx="1" fill="#7fba00"/><rect x="1" y="17" width="14" height="14" rx="1" fill="#00a4ef"/><rect x="17" y="17" width="14" height="14" rx="1" fill="#ffb900"/></svg></div>
       <h1 class="load-title">VOID OS</h1>
-      <p class="load-sub">Starting local shell…</p>
+      <p class="load-sub">Starting local shell...</p>
       <div class="load-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="load-bar">
-        <div class="load-bar-fill" id="load-bar-fill"></div>
+        <div class="load-bar-track"><div class="load-bar-fill" id="load-bar-fill"></div></div>
       </div>
       <p class="load-hint">Esc or click to skip</p>
     </div>
@@ -66,15 +60,15 @@
         </svg>
       </div>
       <h2 class="login-user">Guest</h2>
-      <p class="login-machine">VOID OS · local workstation</p>
+      <p class="login-machine">VOID OS | local workstation</p>
       <button type="button" class="login-btn" id="login-enter">
-        <span>Log on</span>
-        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M2 8h9M8 4l4 4-4 4"/></svg>
+        <span class="login-go" aria-hidden="true"></span>
+        <span class="login-btn-label">Log on to VOID OS</span>
       </button>
       <p class="login-tip">Enter, click, or Esc to continue</p>
     </div>
     <footer class="login-foot">
-      <span>VOID BIOS · fictional firmware · not affiliated with Microsoft</span>
+      <span>VOID BIOS | fictional firmware | not affiliated with Microsoft</span>
     </footer>
   </section>
 
@@ -115,9 +109,9 @@
         <span class="win-title-icon browser" aria-hidden="true"></span>
         <span class="win-title" id="win-browser-title">Void Browser</span>
         <div class="win-controls">
-          <button type="button" class="win-btn min" data-min aria-label="Minimize">_</button>
-          <button type="button" class="win-btn max" data-max aria-label="Maximize">□</button>
-          <button type="button" class="win-btn close" data-close aria-label="Close">×</button>
+          <button type="button" class="win-btn min" data-min aria-label="Minimize"><i></i></button>
+          <button type="button" class="win-btn max" data-max aria-label="Maximize"><i></i></button>
+          <button type="button" class="win-btn close" data-close aria-label="Close"><i></i></button>
         </div>
       </div>
       <div class="browser-chrome">
@@ -128,11 +122,11 @@
           <span class="browser-tab-new" aria-hidden="true">+</span>
         </div>
         <div class="browser-toolbar">
-          <button type="button" class="nav-btn" disabled aria-label="Back">◀</button>
-          <button type="button" class="nav-btn" disabled aria-label="Forward">▶</button>
-          <button type="button" class="nav-btn" id="browser-refresh" aria-label="Refresh">↻</button>
+          <button type="button" class="nav-btn" disabled aria-label="Back"><span class="nav-ico back"></span><</button>
+          <button type="button" class="nav-btn" disabled aria-label="Forward"><span class="nav-ico fwd"></span></button>
+          <button type="button" class="nav-btn" id="browser-refresh" aria-label="Refresh"><span class="nav-ico refresh"></span></button>
           <div class="addr-bar">
-            <span class="addr-lock" aria-hidden="true">🔒</span>
+            <span class="addr-lock" aria-hidden="true"></span>
             <input type="text" id="browser-addr" value="about:void" readonly aria-label="Address">
           </div>
           <button type="button" class="nav-btn go" data-open="download" aria-label="Go">Go</button>
@@ -143,11 +137,11 @@
           <div class="about-void">
             <h2>VOID</h2>
             <p class="tagline">An honest browser wrapper.</p>
-            <p>Chrome + privacy around the web engine your OS already ships — not another Chromium fork, not a phone-home SaaS.</p>
+            <p>Chrome + privacy around the web engine your OS already ships - not another Chromium fork, not a phone-home SaaS.</p>
             <ul class="check-list">
-              <li>No telemetry · no crash phone-home · no “anonymous usage”</li>
-              <li>No AI assistant · no crypto wallet · no VPN upsell</li>
-              <li>No accounts · no cloud sync · no news feed</li>
+              <li>No telemetry | no crash phone-home | no "anonymous usage"</li>
+              <li>No AI assistant | no crypto wallet | no VPN upsell</li>
+              <li>No accounts | no cloud sync | no news feed</li>
             </ul>
             <div class="win-actions">
               <button type="button" class="xp-btn primary" data-browser-tab="download">Get Void</button>
@@ -157,7 +151,7 @@
         </div>
         <div class="browser-page" data-page="download" hidden>
           <p>Free. Open source. Forever. No account.</p>
-          <p class="release-meta" id="browser-release-meta">Latest: <a href="https://github.com/dadhatdaniel/void-browser/releases/latest" rel="noopener noreferrer">loading…</a></p>
+          <p class="release-meta" id="browser-release-meta">Latest: <a href="https://github.com/dadhatdaniel/void-browser/releases/latest" rel="noopener noreferrer">loading...</a></p>
           <div class="dl-table">
             <div class="dl-row">
               <span class="dl-os">Linux</span>
@@ -182,10 +176,10 @@
               <span class="dl-size" data-size-for="macos_dmg">~6 MB</span>
             </div>
           </div>
-          <p class="note">Early builds are <strong>not code-signed</strong> yet — Gatekeeper / SmartScreen may warn.</p>
+          <p class="note">Early builds are <strong>not code-signed</strong> yet - Gatekeeper / SmartScreen may warn.</p>
         </div>
         <div class="browser-page" data-page="honest" hidden>
-          <pre class="honest-pre">Taking browsing back —
+          <pre class="honest-pre">Taking browsing back -
 before AI in everything,
 before selling your data.
 
@@ -206,23 +200,24 @@ This desktop is theatrical fanfiction.</pre>
         <span class="win-title-icon welcome" aria-hidden="true"></span>
         <span class="win-title" id="win-welcome-title">Welcome to VOID OS</span>
         <div class="win-controls">
-          <button type="button" class="win-btn min" data-min aria-label="Minimize">_</button>
-          <button type="button" class="win-btn max" data-max aria-label="Maximize">□</button>
-          <button type="button" class="win-btn close" data-close aria-label="Close">×</button>
+          <button type="button" class="win-btn min" data-min aria-label="Minimize"><i></i></button>
+          <button type="button" class="win-btn max" data-max aria-label="Maximize"><i></i></button>
+          <button type="button" class="win-btn close" data-close aria-label="Close"><i></i></button>
         </div>
       </div>
       <div class="win-body">
         <div class="welcome-hero">
+          <svg class="xp-flag" viewBox="0 0 32 32" width="36" height="36" aria-hidden="true" focusable="false"><rect x="1" y="1" width="14" height="14" rx="1" fill="#f44e25"/><rect x="17" y="1" width="14" height="14" rx="1" fill="#7fba00"/><rect x="1" y="17" width="14" height="14" rx="1" fill="#00a4ef"/><rect x="17" y="17" width="14" height="14" rx="1" fill="#ffb900"/></svg>
           <h2>VOID</h2>
           <p class="tagline">An honest browser wrapper.</p>
         </div>
-        <p>Void is chrome + privacy around the web engine your OS already ships — not another Chromium fork, not a phone-home SaaS.</p>
+        <p>Void is chrome + privacy around the web engine your OS already ships - not another Chromium fork, not a phone-home SaaS.</p>
         <ul class="check-list">
-          <li>No telemetry · no crash phone-home · no “anonymous usage”</li>
-          <li>No AI assistant · no crypto wallet · no VPN upsell</li>
-          <li>No accounts · no cloud sync · no news feed</li>
+          <li>No telemetry | no crash phone-home | no "anonymous usage"</li>
+          <li>No AI assistant | no crypto wallet | no VPN upsell</li>
+          <li>No accounts | no cloud sync | no news feed</li>
         </ul>
-        <p class="muted">Taking browsing back — before AI in everything, before selling your data.</p>
+        <p class="muted">Taking browsing back - before AI in everything, before selling your data.</p>
         <div class="win-actions">
           <button type="button" class="xp-btn primary" data-open="browser">Open Void Browser</button>
           <button type="button" class="xp-btn" data-open="download">Get Void</button>
@@ -235,13 +230,13 @@ This desktop is theatrical fanfiction.</pre>
       <div class="win-titlebar" data-drag>
         <span class="win-title" id="win-wrapper-title">The wrapper is the product</span>
         <div class="win-controls">
-          <button type="button" class="win-btn min" data-min aria-label="Minimize">_</button>
-          <button type="button" class="win-btn max" data-max aria-label="Maximize">□</button>
-          <button type="button" class="win-btn close" data-close aria-label="Close">×</button>
+          <button type="button" class="win-btn min" data-min aria-label="Minimize"><i></i></button>
+          <button type="button" class="win-btn max" data-max aria-label="Maximize"><i></i></button>
+          <button type="button" class="win-btn close" data-close aria-label="Close"><i></i></button>
         </div>
       </div>
       <div class="win-body">
-        <p>We don’t ship Chromium. We don’t invent a rendering engine. Void is the shell: tabs, blockers, modes, config.</p>
+        <p>We don't ship Chromium. We don't invent a rendering engine. Void is the shell: tabs, blockers, modes, config.</p>
         <div class="engine-pair">
           <article class="engine-card">
             <header><span class="pane-tag">WIN32</span><h3>WebView2</h3></header>
@@ -250,7 +245,7 @@ This desktop is theatrical fanfiction.</pre>
           </article>
           <article class="engine-card">
             <header><span class="pane-tag">LINUX</span><h3>WebKit</h3></header>
-            <p>WebKitGTK — same family Safari uses. Lean on the platform. Keep the rest local and small.</p>
+            <p>WebKitGTK - same family Safari uses. Lean on the platform. Keep the rest local and small.</p>
             <p class="pane-foot">Same promise. Different substrate.</p>
           </article>
         </div>
@@ -269,14 +264,14 @@ This desktop is theatrical fanfiction.</pre>
       <div class="win-titlebar" data-drag>
         <span class="win-title" id="win-modes-title">Efficiency &amp; Performance</span>
         <div class="win-controls">
-          <button type="button" class="win-btn min" data-min aria-label="Minimize">_</button>
-          <button type="button" class="win-btn max" data-max aria-label="Maximize">□</button>
-          <button type="button" class="win-btn close" data-close aria-label="Close">×</button>
+          <button type="button" class="win-btn min" data-min aria-label="Minimize"><i></i></button>
+          <button type="button" class="win-btn max" data-max aria-label="Maximize"><i></i></button>
+          <button type="button" class="win-btn close" data-close aria-label="Close"><i></i></button>
         </div>
       </div>
       <div class="win-body">
-        <p class="label">config.toml → performance_mode</p>
-        <p>Same privacy stack either way — different cost to GPU and battery. Flip it in Settings. Stored locally. Nothing reported back.</p>
+        <p class="label">config.toml -> performance_mode</p>
+        <p>Same privacy stack either way - different cost to GPU and battery. Flip it in Settings. Stored locally. Nothing reported back.</p>
         <div class="mode-pair">
           <article class="mode-card">
             <span class="badge">DEFAULT</span>
@@ -287,7 +282,7 @@ This desktop is theatrical fanfiction.</pre>
           <article class="mode-card">
             <span class="badge">POWER-SAVE</span>
             <h3>Efficiency</h3>
-            <p>Software rendering path — battery, GPU-less VMs, remote desktops.</p>
+            <p>Software rendering path - battery, GPU-less VMs, remote desktops.</p>
             <code>performance_mode = "efficiency"</code>
           </article>
         </div>
@@ -295,9 +290,9 @@ This desktop is theatrical fanfiction.</pre>
           <div><strong>Ad blocker</strong><span>137k+ filter rules</span></div>
           <div><strong>HTTPS-only</strong><span>Insecure blocked</span></div>
           <div><strong>Anti-fingerprint</strong><span>Canvas / WebGL / Audio</span></div>
-          <div><strong>DoH</strong><span>Quad9 · Cloudflare · Mullvad</span></div>
+          <div><strong>DoH</strong><span>Quad9 | Cloudflare | Mullvad</span></div>
           <div><strong>Footprint</strong><span>&lt;10&nbsp;MB + OS engine</span></div>
-          <div><strong>Zero telemetry</strong><span>We can’t see you browse</span></div>
+          <div><strong>Zero telemetry</strong><span>We can't see you browse</span></div>
         </div>
       </div>
     </div>
@@ -307,14 +302,14 @@ This desktop is theatrical fanfiction.</pre>
       <div class="win-titlebar" data-drag>
         <span class="win-title" id="win-download-title">Acquire Void</span>
         <div class="win-controls">
-          <button type="button" class="win-btn min" data-min aria-label="Minimize">_</button>
-          <button type="button" class="win-btn max" data-max aria-label="Maximize">□</button>
-          <button type="button" class="win-btn close" data-close aria-label="Close">×</button>
+          <button type="button" class="win-btn min" data-min aria-label="Minimize"><i></i></button>
+          <button type="button" class="win-btn max" data-max aria-label="Maximize"><i></i></button>
+          <button type="button" class="win-btn close" data-close aria-label="Close"><i></i></button>
         </div>
       </div>
       <div class="win-body">
         <p>Free. Open source. Forever. No account.</p>
-        <p class="release-meta" id="download-release-meta">Latest: <a href="https://github.com/dadhatdaniel/void-browser/releases/latest" rel="noopener noreferrer">loading…</a></p>
+        <p class="release-meta" id="download-release-meta">Latest: <a href="https://github.com/dadhatdaniel/void-browser/releases/latest" rel="noopener noreferrer">loading...</a></p>
         <div class="dl-table">
           <div class="dl-row">
             <span class="dl-os">Linux</span>
@@ -339,8 +334,8 @@ This desktop is theatrical fanfiction.</pre>
             <span class="dl-size" data-size-for="macos_dmg">~6 MB</span>
           </div>
         </div>
-        <p class="note">Early builds are <strong>not code-signed</strong> yet — Gatekeeper / SmartScreen may warn. Expected until signing lands.</p>
-        <p class="note"><a href="https://github.com/dadhatdaniel/void-browser/releases/latest" rel="noopener noreferrer">All assets on GitHub Releases →</a></p>
+        <p class="note">Early builds are <strong>not code-signed</strong> yet - Gatekeeper / SmartScreen may warn. Expected until signing lands.</p>
+        <p class="note"><a href="https://github.com/dadhatdaniel/void-browser/releases/latest" rel="noopener noreferrer">All assets on GitHub Releases -></a></p>
         <div class="win-actions">
           <a class="xp-btn tip" href="https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&amp;business=daniel.lightfoot%40gmail.com&amp;item_name=Coffee%20for%20Void%20Browser&amp;currency_code=USD" rel="noopener noreferrer">Tip via PayPal</a>
           <a class="xp-btn" href="https://github.com/dadhatdaniel/void-browser/blob/main/LICENSE" rel="noopener noreferrer">GPL-3.0</a>
@@ -354,9 +349,9 @@ This desktop is theatrical fanfiction.</pre>
         <span class="win-title-icon mycomp" aria-hidden="true"></span>
         <span class="win-title" id="win-mycomp-title">My Computer</span>
         <div class="win-controls">
-          <button type="button" class="win-btn min" data-min aria-label="Minimize">_</button>
-          <button type="button" class="win-btn max" data-max aria-label="Maximize">□</button>
-          <button type="button" class="win-btn close" data-close aria-label="Close">×</button>
+          <button type="button" class="win-btn min" data-min aria-label="Minimize"><i></i></button>
+          <button type="button" class="win-btn max" data-max aria-label="Maximize"><i></i></button>
+          <button type="button" class="win-btn close" data-close aria-label="Close"><i></i></button>
         </div>
       </div>
       <div class="win-body">
@@ -372,7 +367,7 @@ This desktop is theatrical fanfiction.</pre>
           </button>
           <div class="mycomp-item static">
             <span class="icon-glyph disk sm" aria-hidden="true"></span>
-            <span><strong>Local Disk (C:)</strong><em>Honest Wrapper · 65536 KB free</em></span>
+            <span><strong>Local Disk (C:)</strong><em>Honest Wrapper | 65536 KB free</em></span>
           </div>
         </div>
       </div>
@@ -383,17 +378,17 @@ This desktop is theatrical fanfiction.</pre>
       <div class="win-titlebar" data-drag>
         <span class="win-title" id="win-games-title">Games</span>
         <div class="win-controls">
-          <button type="button" class="win-btn min" data-min aria-label="Minimize">_</button>
-          <button type="button" class="win-btn max" data-max aria-label="Maximize">□</button>
-          <button type="button" class="win-btn close" data-close aria-label="Close">×</button>
+          <button type="button" class="win-btn min" data-min aria-label="Minimize"><i></i></button>
+          <button type="button" class="win-btn max" data-max aria-label="Maximize"><i></i></button>
+          <button type="button" class="win-btn close" data-close aria-label="Close"><i></i></button>
         </div>
       </div>
       <div class="win-body">
-        <p>Classic time-wasters — not included (licenses &amp; nostalgia).</p>
+        <p>Classic time-wasters - not included (licenses &amp; nostalgia).</p>
         <ul class="check-list">
-          <li><strong>Solitaire</strong> — cards not dealt. Try the real Void instead.</li>
-          <li><strong>Minesweeper</strong> — all mines are telemetry. Flagged &amp; cleared.</li>
-          <li><strong>Pinball</strong> — table closed. Bumper: zero phone-home.</li>
+          <li><strong>Solitaire</strong> - cards not dealt. Try the real Void instead.</li>
+          <li><strong>Minesweeper</strong> - all mines are telemetry. Flagged &amp; cleared.</li>
+          <li><strong>Pinball</strong> - table closed. Bumper: zero phone-home.</li>
         </ul>
         <div class="win-actions">
           <button type="button" class="xp-btn primary" data-open="browser">Play Void Browser</button>
@@ -406,9 +401,9 @@ This desktop is theatrical fanfiction.</pre>
       <div class="win-titlebar cmd-bar" data-drag>
         <span class="win-title" id="win-cmd-title">C:\WINDOWS\system32\cmd.exe</span>
         <div class="win-controls">
-          <button type="button" class="win-btn min" data-min aria-label="Minimize">_</button>
-          <button type="button" class="win-btn max" data-max aria-label="Maximize">□</button>
-          <button type="button" class="win-btn close" data-close aria-label="Close">×</button>
+          <button type="button" class="win-btn min" data-min aria-label="Minimize"><i></i></button>
+          <button type="button" class="win-btn max" data-max aria-label="Maximize"><i></i></button>
+          <button type="button" class="win-btn close" data-close aria-label="Close"><i></i></button>
         </div>
       </div>
       <div class="win-body cmd-body">
@@ -418,12 +413,12 @@ This desktop is theatrical fanfiction.</pre>
 
     <div class="taskbar" role="contentinfo">
       <button type="button" class="start-btn" id="start-btn" aria-expanded="false" aria-controls="start-menu">
-        <span class="start-mark" aria-hidden="true"></span>
+        <span class="start-mark" aria-hidden="true"><svg class="xp-flag" viewBox="0 0 32 32" width="16" height="16" aria-hidden="true" focusable="false"><rect x="1" y="1" width="14" height="14" rx="1" fill="#f44e25"/><rect x="17" y="1" width="14" height="14" rx="1" fill="#7fba00"/><rect x="1" y="17" width="14" height="14" rx="1" fill="#00a4ef"/><rect x="17" y="17" width="14" height="14" rx="1" fill="#ffb900"/></svg></span>
         <span class="start-label">start</span>
       </button>
       <div class="task-tabs" id="task-tabs" aria-label="Open windows"></div>
       <div class="tray">
-        <button type="button" class="tray-icon" id="tray-vol" title="Volume" aria-label="Volume">🕪</button>
+        <button type="button" class="tray-icon" id="tray-vol" title="Volume" aria-label="Volume"><span class="vol-ico"></span></button>
         <span class="tray-clock" id="tray-clock">12:00 PM</span>
       </div>
     </div>
@@ -453,7 +448,7 @@ This desktop is theatrical fanfiction.</pre>
           <button type="button" id="start-cmd">Command Prompt</button>
           <button type="button" id="start-assistant">VOID Assistant</button>
           <hr>
-          <button type="button" id="reboot-btn">Restart boot…</button>
+          <button type="button" id="reboot-btn">Restart boot...</button>
         </div>
       </div>
     </div>
@@ -465,7 +460,7 @@ This desktop is theatrical fanfiction.</pre>
       <p id="bsod-title">A problem has been detected and VOID OS has been shut down to prevent damage to your honesty.</p>
       <p>TELEMETRY_ATTEMPTED_TO_PHONE_HOME</p>
       <p class="bsod-dim">If this is the first time you've seen this stop error screen,<br>restart your computer. If this screen appears again, follow<br>these steps:</p>
-      <p class="bsod-dim">* Stop installing spyware disguised as “features”<br>* Check that your browser is still just a wrapper<br>* Press any key (or Esc) to dismiss this theatrical BSOD</p>
+      <p class="bsod-dim">* Stop installing spyware disguised as "features"<br>* Check that your browser is still just a wrapper<br>* Press any key (or Esc) to dismiss this theatrical BSOD</p>
       <p class="bsod-blink">Press any key to continue _</p>
     </div>
   </div>
@@ -475,7 +470,7 @@ This desktop is theatrical fanfiction.</pre>
       <div class="xp-dialog-title" id="sticky-title">StickyKeys</div>
       <div class="xp-dialog-body">
         <p>Do you want to enable StickyKeys?</p>
-        <p class="muted">You’ve been hammering Shift like it’s 2001. This is a parody dialog — VOID OS has no accessibility malware jokes, just this nudge.</p>
+        <p class="muted">You've been hammering Shift like it's 2001. This is a parody dialog - VOID OS has no accessibility malware jokes, just this nudge.</p>
         <div class="win-actions">
           <button type="button" class="xp-btn primary" id="sticky-yes">Yes</button>
           <button type="button" class="xp-btn" id="sticky-no">No</button>
@@ -489,7 +484,7 @@ This desktop is theatrical fanfiction.</pre>
       <div class="xp-dialog-title" id="empty-title">Recycle Bin</div>
       <div class="xp-dialog-body">
         <p>Empty Void?</p>
-        <p class="muted">There’s nothing here but discarded telemetry fantasies. Deleting them won’t free disk space — it frees your conscience.</p>
+        <p class="muted">There's nothing here but discarded telemetry fantasies. Deleting them won't free disk space - it frees your conscience.</p>
         <div class="win-actions">
           <button type="button" class="xp-btn primary" id="empty-yes">Yes</button>
           <button type="button" class="xp-btn" id="empty-no">No</button>
@@ -500,10 +495,23 @@ This desktop is theatrical fanfiction.</pre>
 
   <div class="void-assistant" id="void-assistant" hidden>
     <div class="assistant-bubble">
-      <p id="assistant-text">It looks like you’re browsing without tracking. Want help staying that way?</p>
+      <p id="assistant-text">It looks like you're browsing without tracking. Want help staying that way?</p>
       <button type="button" class="xp-btn" id="assistant-dismiss">OK</button>
     </div>
-    <div class="assistant-clip" aria-hidden="true">📎</div>
+    <div class="assistant-clip" aria-hidden="true">
+      <svg viewBox="0 0 80 100" width="72" height="90" class="clippy-svg">
+        <ellipse cx="40" cy="78" rx="22" ry="10" fill="#c0c0c0" opacity="0.35"/>
+        <path d="M28 18 C28 8 52 8 52 18 L52 58 C52 72 28 72 28 58 Z" fill="#e8e8e8" stroke="#666" stroke-width="2"/>
+        <path d="M34 18 C34 12 46 12 46 18" fill="none" stroke="#888" stroke-width="2"/>
+        <circle cx="36" cy="36" r="3.2" fill="#222"/>
+        <circle cx="44" cy="36" r="3.2" fill="#222"/>
+        <circle cx="37" cy="35" r="1" fill="#fff"/>
+        <circle cx="45" cy="35" r="1" fill="#fff"/>
+        <path d="M35 48 Q40 54 45 48" fill="none" stroke="#333" stroke-width="2" stroke-linecap="round"/>
+        <path d="M40 12 C40 4 56 6 54 18" fill="none" stroke="#888" stroke-width="3" stroke-linecap="round"/>
+        <circle cx="54" cy="20" r="3" fill="#bbb" stroke="#666" stroke-width="1.5"/>
+      </svg>
+    </div>
   </div>
 
   <div class="toast" id="tray-toast" hidden></div>
