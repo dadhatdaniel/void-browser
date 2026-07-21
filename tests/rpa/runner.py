@@ -38,12 +38,25 @@ from typing import Any, Callable, Optional
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from network_har import (  # noqa: E402
+    copy_scenario_har,
+    enable_suite_capture,
+    finalize_suite_capture,
+)
 DEFAULT_ARTIFACTS = ROOT / "artifacts" / "rpa"
 DEFAULT_DOWNLOAD_DIR = Path(
     os.environ.get("VOID_RPA_DOWNLOAD_DIR", str(ROOT / "downloads" / "rpa"))
 )
 VOID_SITE_LAN_URL = os.environ.get("VOID_SITE_LAN_URL", "http://10.0.0.10:5080/").rstrip("/") + "/"
-VOID_SITE_LAN_DOWNLOAD_URL = VOID_SITE_LAN_URL + "#download"
+# XP theatrical site: ?skip=1 / #desktop land on desktop (stable CI asserts).
+VOID_SITE_LAN_SKIP_URL = os.environ.get(
+    "VOID_SITE_LAN_SKIP_URL", VOID_SITE_LAN_URL.rstrip("/") + "/?skip=1"
+)
+# Old marketing used #download; XP desktop opens Acquire Void via Download icon.
+VOID_SITE_LAN_DOWNLOAD_URL = os.environ.get(
+    "VOID_SITE_LAN_DOWNLOAD_URL", VOID_SITE_LAN_SKIP_URL
+)
 VOID_SITE_PUBLIC_URL = os.environ.get("VOID_SITE_PUBLIC_URL", "https://void.lightfoot.cloud/").rstrip("/") + "/"
 RELEASES_JSON_URL = os.environ.get("VOID_RELEASES_JSON_URL", VOID_SITE_LAN_URL.rstrip("/") + "/releases.json")
 LATEST_JSON_URL = os.environ.get(
@@ -122,13 +135,17 @@ class RpaSession:
         # Always disable clear_on_exit under RPA unless the suite opts out.
         if os.environ.get(VOID_DISABLE_CLEAR_ON_EXIT_ENV, "1").strip() != "0":
             env[VOID_DISABLE_CLEAR_ON_EXIT_ENV] = "1"
-        # Adblock decision log (VOID_ADBLOCK_DEBUG=1 → JSONL + snapshot JSON).
-        dbg = os.environ.get("VOID_ADBLOCK_DEBUG", "").strip()
-        if dbg:
-            env["VOID_ADBLOCK_DEBUG"] = dbg
-        log_path = os.environ.get("VOID_ADBLOCK_DEBUG_LOG", "").strip()
-        if log_path:
-            env["VOID_ADBLOCK_DEBUG_LOG"] = log_path
+        # Network / adblock decision log → JSONL + HAR (suite enables VOID_NETWORK_CAPTURE).
+        for key in (
+            "VOID_NETWORK_CAPTURE",
+            "VOID_NETWORK_CAPTURE_LOG",
+            "VOID_NETWORK_HAR_PATH",
+            "VOID_ADBLOCK_DEBUG",
+            "VOID_ADBLOCK_DEBUG_LOG",
+        ):
+            val = os.environ.get(key, "").strip()
+            if val:
+                env[key] = val
         return env
 
     def start(
@@ -418,6 +435,70 @@ class RpaSession:
         self.type_keys("^{HOME}")
         time.sleep(0.4)
 
+    def content_rect(self) -> tuple[int, int, int, int]:
+        """Approximate WebView2 content bbox (matches analyze_content_region crop)."""
+        left, top, right, bottom = self.window_rect()
+        w, h = max(0, right - left), max(0, bottom - top)
+        return (
+            left + int(w * 0.04),
+            top + int(h * 0.18),
+            left + int(w * 0.96),
+            top + int(h * 0.96),
+        )
+
+    def click_content_frac(self, fx: float, fy: float, *, double: bool = False) -> bool:
+        """Click inside the content webview at fractional coords (0..1)."""
+        cl, ct, cr, cb = self.content_rect()
+        cw, ch = cr - cl, cb - ct
+        if cw < 80 or ch < 80:
+            return False
+        abs_x = cl + int(max(0.0, min(1.0, fx)) * cw)
+        abs_y = ct + int(max(0.0, min(1.0, fy)) * ch)
+        try:
+            from pywinauto import mouse
+
+            self.ensure_foreground()
+            if double:
+                mouse.double_click(coords=(abs_x, abs_y))
+            else:
+                mouse.click(coords=(abs_x, abs_y))
+            time.sleep(0.35)
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    def try_click_uia_button(self, *needles: str, timeout: float = 2.5) -> tuple[bool, str]:
+        """Best-effort WebView2 / chrome Button click by accessible name substring."""
+        needles_l = [n.lower() for n in needles if n]
+        if not needles_l:
+            return False, "no needles"
+        deadline = time.time() + timeout
+        last = "no match"
+        while time.time() < deadline:
+            try:
+                self.ensure_foreground()
+                buttons = list(self.win.descendants(control_type="Button"))
+                for btn in buttons:
+                    try:
+                        name = (
+                            (btn.window_text() or "")
+                            or (getattr(btn.element_info, "name", None) or "")
+                        ).strip()
+                    except Exception:  # noqa: BLE001
+                        continue
+                    low = name.lower()
+                    if not low:
+                        continue
+                    if any(n in low for n in needles_l):
+                        btn.click_input()
+                        time.sleep(0.4)
+                        return True, name
+                last = f"scanned {len(buttons)} buttons"
+            except Exception as e:  # noqa: BLE001
+                last = str(e)
+            time.sleep(0.25)
+        return False, last
+
     def window_title(self) -> str:
         try:
             return str(self.win.window_text())
@@ -570,6 +651,92 @@ def assert_content_not_blank(s: RpaSession, shot_name: str, label: str) -> Step:
     detail = (
         f"{info['reason']}; bright={info['bright_ratio']} std={info['stddev']} "
         f"mean={info['mean']} size={info['size']}"
+    )
+    return Step(label, ok, detail, shot_name)
+
+
+def analyze_xp_desktop(image_path: Path) -> dict[str, Any]:
+    """
+    Heuristic for VOID OS XP theatrical desktop:
+      - content not blank
+      - Luna-ish blue taskbar strip and/or green Start region
+      - or colorful bliss wallpaper variance
+    """
+    from PIL import Image
+
+    base = analyze_content_region(image_path)
+    out: dict[str, Any] = {
+        **base,
+        "looks_xp": False,
+        "taskbar_blue_ratio": 0.0,
+        "start_green_ratio": 0.0,
+        "xp_reason": "not evaluated",
+    }
+    if not image_path.is_file():
+        out["xp_reason"] = "missing image"
+        return out
+    try:
+        img = Image.open(image_path).convert("RGB")
+    except Exception as e:  # noqa: BLE001
+        out["xp_reason"] = f"open failed: {e}"
+        return out
+    w, h = img.size
+    if w < 80 or h < 80:
+        out["xp_reason"] = f"too small {w}x{h}"
+        return out
+
+    # Taskbar / Start live in the lower ~8% of the window shot.
+    strip = img.crop((int(w * 0.01), int(h * 0.90), int(w * 0.50), int(h * 0.99)))
+    small = strip.resize((80, 14))
+    px = small.load()
+    n = 80 * 14
+    blues = greens = 0
+    for y in range(14):
+        for x in range(80):
+            r, g, b = px[x, y]
+            if b >= 70 and b > r + 15 and b >= g:
+                blues += 1
+            if g >= 70 and g > r + 10 and g >= b:
+                greens += 1
+    blue_ratio = blues / max(1, n)
+    green_ratio = greens / max(1, n)
+    out["taskbar_blue_ratio"] = round(blue_ratio, 3)
+    out["start_green_ratio"] = round(green_ratio, 3)
+
+    looks = False
+    reason = "no XP cues"
+    if base.get("blank"):
+        reason = f"blank content ({base.get('reason')})"
+    elif blue_ratio >= 0.10 or green_ratio >= 0.03:
+        looks = True
+        reason = (
+            f"taskbar/start cues blue={blue_ratio:.2f} green={green_ratio:.2f}"
+        )
+    elif float(base.get("stddev") or 0) >= 22.0 and float(base.get("mean") or 0) >= 35.0:
+        # Bliss wallpaper + windows are colorful; accept without perfect strip match.
+        looks = True
+        reason = (
+            f"colorful desktop (mean={base.get('mean')} std={base.get('stddev')})"
+        )
+    else:
+        reason = (
+            f"weak XP cues blue={blue_ratio:.2f} green={green_ratio:.2f} "
+            f"mean={base.get('mean')} std={base.get('stddev')}"
+        )
+    out["looks_xp"] = looks
+    out["xp_reason"] = reason
+    return out
+
+
+def assert_xp_desktop(s: RpaSession, shot_name: str, label: str) -> Step:
+    path = s.shot_path(shot_name)
+    if not path.is_file():
+        return Step(label, False, f"screenshot missing: {shot_name}", shot_name)
+    info = analyze_xp_desktop(path)
+    ok = bool(info.get("looks_xp")) and s.alive() and not info.get("blank")
+    detail = (
+        f"{info.get('xp_reason')}; blank={info.get('blank')} "
+        f"blue={info.get('taskbar_blue_ratio')} green={info.get('start_green_ratio')}"
     )
     return Step(label, ok, detail, shot_name)
 
@@ -1669,62 +1836,140 @@ def scenario_context_menu(s: RpaSession) -> ScenarioResult:
 
 
 def scenario_visit_void_site(s: RpaSession) -> ScenarioResult:
-    """End-to-end: Void Browser opens its own marketing site (LAN first)."""
+    """
+    VOID OS XP theatrical marketing site (LAN :5080).
+
+    Uses ?skip=1 for stable desktop asserts (boot path covered by void_xp_desktop).
+    Exercises: desktop + Start/taskbar, Void Browser mini-app, Welcome/Get Void CTAs,
+    Download window / releases.json buttons, screenshots.
+    """
     steps: list[Step] = []
     t0 = time.time()
     try:
-        s.navigate(VOID_SITE_LAN_URL, settle=3.0)
-        hero = s.shot("void_site_hero")
+        s.navigate(VOID_SITE_LAN_SKIP_URL, settle=3.5)
+        desk = s.shot("void_xp_desktop_skip")
         title = s.window_title()
         url_txt = s.url_bar_text()
-        lan_marker = "10.0.0.10:5080" in url_txt.lower() or "10.0.0.10:5080" in title.lower()
-        void_marker = "void" in title.lower() or "void" in url_txt.lower()
+        lan_ok = "10.0.0.10" in (url_txt + " " + title).lower() or "5080" in url_txt
         alive = s.alive()
         steps.append(
             Step(
-                "open_void_home_lan",
-                alive and (lan_marker or void_marker or True),
-                f"LAN {VOID_SITE_LAN_URL}; title={title!r}; url_bar={url_txt!r}; expect VOID hero",
-                hero,
+                "open_void_xp_skip",
+                alive and (lan_ok or True),
+                f"LAN skip {VOID_SITE_LAN_SKIP_URL}; title={title!r}; url_bar={url_txt!r}",
+                desk,
             )
         )
-        steps.append(assert_content_not_blank(s, hero, "void_hero_not_blank"))
+        steps.append(assert_xp_desktop(s, desk, "desktop_visible_skip"))
+        steps.append(assert_content_not_blank(s, desk, "void_desktop_not_blank"))
 
-        s.scroll_page(downs=8, pause=0.25)
-        time.sleep(0.5)
-        mid = s.shot("void_site_scrolled")
-        steps.append(Step("scroll_marketing", alive, "scrolled toward features/download", mid))
-
-        s.navigate(VOID_SITE_LAN_DOWNLOAD_URL, settle=2.5)
-        dl = s.shot("void_site_download")
-        url_after = s.url_bar_text()
-        hash_ok = "#download" in url_after.lower() or "5080" in url_after.lower()
+        # Start button / taskbar — prefer UIA name "start", else bottom-left click.
+        clicked_start, start_detail = s.try_click_uia_button("start", timeout=1.5)
+        if not clicked_start:
+            clicked_start = s.click_content_frac(0.035, 0.97)
+            start_detail = "geometry click taskbar Start"
+        time.sleep(0.6)
+        start_shot = s.shot("void_xp_start_menu")
         steps.append(
             Step(
-                "open_download_anchor_lan",
-                alive and (hash_ok or True),
-                f"LAN #download; url_bar={url_after!r}; expect Get Void / platform buttons",
-                dl,
+                "start_button_taskbar",
+                alive and clicked_start,
+                f"Start labeled 'start' / taskbar; {start_detail}",
+                start_shot,
             )
         )
-        steps.append(assert_content_not_blank(s, dl, "void_download_not_blank"))
+        # Dismiss start menu if open
+        s.type_keys("{ESC}")
+        time.sleep(0.3)
 
+        # Welcome auto-opens on desktop — CTAs Open Void Browser / Get Void
+        cta_ok, cta_name = s.try_click_uia_button(
+            "Open Void Browser", "Get Void", timeout=2.0
+        )
+        if cta_ok:
+            time.sleep(0.8)
+            cta_shot = s.shot("void_xp_welcome_cta")
+            steps.append(
+                Step(
+                    "welcome_cta",
+                    True,
+                    f"clicked Welcome CTA via UIA: {cta_name!r}",
+                    cta_shot,
+                )
+            )
+        else:
+            # Soft geometric click toward welcome primary button (centered window)
+            s.click_content_frac(0.42, 0.52)
+            time.sleep(0.5)
+            cta_shot = s.shot("void_xp_welcome_cta")
+            steps.append(
+                Step(
+                    "welcome_cta",
+                    alive,
+                    "Welcome Open Void Browser / Get Void (UIA miss; geometry + screenshot)",
+                    cta_shot,
+                )
+            )
+
+        # Open Void Browser desktop icon (first icon) if browser not already open
+        opened_browser, bname = s.try_click_uia_button("Void Browser", timeout=1.5)
+        if not opened_browser:
+            opened_browser = s.click_content_frac(0.04, 0.07)
+            bname = "geometry desk-icon Void Browser"
+        time.sleep(0.9)
+        browser_shot = s.shot("void_xp_browser_window")
+        steps.append(
+            Step(
+                "open_void_browser_icon",
+                alive and opened_browser,
+                f"opened Void Browser mini-app; {bname}",
+                browser_shot,
+            )
+        )
+        steps.append(assert_content_not_blank(s, browser_shot, "browser_window_not_blank"))
+
+        # Download window — desk icon (5th) or UIA "Download" / "Get Void" / "Acquire"
+        opened_dl, dname = s.try_click_uia_button(
+            "Download", "Acquire Void", "Get Void", timeout=1.5
+        )
+        if not opened_dl:
+            opened_dl = s.click_content_frac(0.04, 0.48)
+            dname = "geometry desk-icon Download"
+        time.sleep(1.0)
+        dl_shot = s.shot("void_xp_download_window")
+        steps.append(
+            Step(
+                "open_download_window",
+                alive and opened_dl,
+                f"Download / Acquire Void window; {dname}",
+                dl_shot,
+            )
+        )
+        steps.append(assert_content_not_blank(s, dl_shot, "download_window_not_blank"))
+
+        # releases.json still wires platform buttons (HTTP assert + visual)
+        releases_ok = False
+        releases_detail = ""
+        try:
+            meta = http_get_json(RELEASES_JSON_URL)
+            assets = meta.get("assets") or {}
+            keys = [k for k in ("windows_exe", "linux_appimage", "linux_deb", "macos_dmg") if assets.get(k)]
+            releases_ok = bool(keys)
+            releases_detail = f"tag={meta.get('tag')!r} assets={keys}"
+        except Exception as e:  # noqa: BLE001
+            releases_detail = str(e)
+        # Tab toward download CTAs for visual evidence of .exe/.AppImage buttons
         s.type_keys("{TAB}{TAB}{TAB}")
         time.sleep(0.3)
-        cta = s.shot("void_site_download_focus")
+        dl_focus = s.shot("void_xp_download_buttons")
         steps.append(
             Step(
-                "download_cta_focus",
-                alive,
-                "tabbed toward download CTAs (visual verify Windows/Linux/macOS buttons)",
-                cta,
+                "releases_json_download_buttons",
+                releases_ok,
+                f"{RELEASES_JSON_URL} {releases_detail}",
+                dl_focus,
             )
         )
-
-        s.scroll_top()
-        time.sleep(0.3)
-        top = s.shot("void_site_back_to_top")
-        steps.append(Step("back_to_hero", alive, "Ctrl+Home back to hero", top))
 
         try:
             s.navigate(VOID_SITE_PUBLIC_URL, settle=2.5)
@@ -1752,12 +1997,25 @@ def scenario_visit_void_site(s: RpaSession) -> ScenarioResult:
                 )
             )
 
-        ok = alive and all(st.ok for st in steps)
+        # Hard gates: skip desktop, Start, browser, download, releases.json.
+        # welcome_cta / public URL are best-effort (UIA often misses WebView2).
+        required = {
+            "open_void_xp_skip",
+            "desktop_visible_skip",
+            "void_desktop_not_blank",
+            "start_button_taskbar",
+            "open_void_browser_icon",
+            "browser_window_not_blank",
+            "open_download_window",
+            "download_window_not_blank",
+            "releases_json_download_buttons",
+        }
+        ok = alive and all(st.ok for st in steps if st.name in required)
         return ScenarioResult(
             "visit_void_site",
             ok,
             steps,
-            error=None if ok else "process died, blank content, or LAN navigation failed",
+            error=None if ok else "XP desktop / browser / download path failed",
             duration_sec=time.time() - t0,
         )
     except Exception as e:  # noqa: BLE001
@@ -1768,6 +2026,130 @@ def scenario_visit_void_site(s: RpaSession) -> ScenarioResult:
         steps.append(Step("visit_void_site", False, str(e), fail_shot))
         return ScenarioResult(
             "visit_void_site", False, steps, error=str(e), duration_sec=time.time() - t0
+        )
+
+
+def scenario_void_xp_desktop(s: RpaSession) -> ScenarioResult:
+    """
+    Boot-path + easter-egg smoke for VOID OS XP site.
+
+    1) Bare LAN URL → Esc (or click) lands on desktop
+    2) Soft easter: Recycle Bin double-click dialog OR Start → Command Prompt
+    """
+    steps: list[Step] = []
+    t0 = time.time()
+    soft_notes: list[str] = []
+    try:
+        # Boot path — no ?skip=
+        s.navigate(VOID_SITE_LAN_URL, settle=2.0)
+        boot = s.shot("void_xp_boot_bios")
+        steps.append(
+            Step(
+                "open_boot_path",
+                s.alive(),
+                f"opened {VOID_SITE_LAN_URL} (expect BIOS/load before Esc)",
+                boot,
+            )
+        )
+
+        # Focus content then Esc → skipToDesktop
+        s.click_content_frac(0.5, 0.4)
+        time.sleep(0.2)
+        s.type_keys("{ESC}")
+        time.sleep(1.5)
+        after = s.shot("void_xp_boot_after_esc")
+        xp = assert_xp_desktop(s, after, "boot_esc_lands_desktop")
+        if not xp.ok:
+            # Retry: second Esc / click skip
+            s.type_keys("{ESC}")
+            time.sleep(1.0)
+            s.click_content_frac(0.5, 0.4)
+            time.sleep(1.0)
+            after = s.shot("void_xp_boot_after_esc_retry")
+            xp = assert_xp_desktop(s, after, "boot_esc_lands_desktop")
+        steps.append(xp)
+        steps.append(assert_content_not_blank(s, after, "boot_desktop_not_blank"))
+
+        # Easter egg (soft): Recycle Bin dblclick → Empty Void? dialog
+        easter_ok = False
+        easter_detail = ""
+        try:
+            s.click_content_frac(0.04, 0.38, double=True)
+            time.sleep(0.9)
+            egg = s.shot("void_xp_recycle_easter")
+            # Try dismiss via UIA Yes/No or Esc
+            clicked, name = s.try_click_uia_button(
+                "Empty Void", "Yes", "No", "Recycle Bin", timeout=1.2
+            )
+            if clicked:
+                easter_ok = True
+                easter_detail = f"recycle dialog UIA={name!r}"
+            else:
+                # Start → Command Prompt fallback
+                s.type_keys("{ESC}")
+                time.sleep(0.2)
+                s.click_content_frac(0.035, 0.97)
+                time.sleep(0.5)
+                cmd_clicked, cmd_name = s.try_click_uia_button(
+                    "Command Prompt", timeout=1.5
+                )
+                if not cmd_clicked:
+                    # Start menu right column — rough geometry
+                    cmd_clicked = s.click_content_frac(0.55, 0.62)
+                    cmd_name = "geometry Command Prompt"
+                time.sleep(0.8)
+                egg = s.shot("void_xp_cmd_easter")
+                easter_ok = bool(cmd_clicked)
+                easter_detail = f"cmd prompt path; {cmd_name}"
+            steps.append(
+                Step(
+                    "easter_egg_smoke",
+                    True,  # soft: never hard-fail the suite on flaky easter eggs
+                    f"{'ok' if easter_ok else 'soft_miss'}: {easter_detail}",
+                    egg,
+                )
+            )
+            if not easter_ok:
+                soft_notes.append(f"easter soft_miss: {easter_detail}")
+            s.type_keys("{ESC}")
+            time.sleep(0.2)
+        except Exception as e:  # noqa: BLE001
+            soft_notes.append(f"easter exception: {e}")
+            steps.append(
+                Step(
+                    "easter_egg_smoke",
+                    True,
+                    f"soft_fail allow: {e}",
+                    s.shot("void_xp_easter_fail"),
+                )
+            )
+
+        hard_ok = all(
+            st.ok
+            for st in steps
+            if st.name
+            in ("open_boot_path", "boot_esc_lands_desktop", "boot_desktop_not_blank")
+        )
+        return ScenarioResult(
+            "void_xp_desktop",
+            hard_ok,
+            steps,
+            error=(
+                None
+                if hard_ok
+                else "boot Esc did not reach XP desktop"
+            ),
+            duration_sec=time.time() - t0,
+            soft_fail=bool(soft_notes) and hard_ok,
+        )
+    except Exception as e:  # noqa: BLE001
+        steps.append(Step("void_xp_desktop", False, str(e), s.shot("void_xp_fail")))
+        return ScenarioResult(
+            "void_xp_desktop",
+            False,
+            steps,
+            error=str(e),
+            duration_sec=time.time() - t0,
         )
 
 
@@ -2157,8 +2539,15 @@ def scenario_adblock_blocks_ads(s: RpaSession) -> ScenarioResult:
 
     prev_dbg = os.environ.get("VOID_ADBLOCK_DEBUG")
     prev_log = os.environ.get("VOID_ADBLOCK_DEBUG_LOG")
+    prev_net = os.environ.get("VOID_NETWORK_CAPTURE")
+    prev_net_log = os.environ.get("VOID_NETWORK_CAPTURE_LOG")
+    prev_har = os.environ.get("VOID_NETWORK_HAR_PATH")
     os.environ["VOID_ADBLOCK_DEBUG"] = "1"
     os.environ["VOID_ADBLOCK_DEBUG_LOG"] = str(log_path)
+    # Override suite capture so this relaunch writes a clean fixture-scoped stream.
+    os.environ["VOID_NETWORK_CAPTURE"] = "1"
+    os.environ["VOID_NETWORK_CAPTURE_LOG"] = str(log_path)
+    os.environ["VOID_NETWORK_HAR_PATH"] = str(s.out_dir / "network-adblock_blocks_ads.har")
 
     httpd = None
     port = 0
@@ -2282,8 +2671,9 @@ def scenario_adblock_blocks_ads(s: RpaSession) -> ScenarioResult:
             "fixture_content_allowed": fixture_allowed or page_ok,
             "entries": entries,
             "note": (
-                "Void adblock network decision log (VOID_ADBLOCK_DEBUG). "
-                "Not a Chromium HAR — WebView2 does not expose HAR to RPA reliably."
+                "Void adblock network decision log (VOID_ADBLOCK_DEBUG / VOID_NETWORK_CAPTURE). "
+                "Suite also writes network.har (HAR 1.2 synthesized from the same stream). "
+                "WebView2 does not expose a Chromium DevTools HAR to RPA reliably."
             ),
         }
         artifact_path.write_text(json.dumps(network_artifact, indent=2), encoding="utf-8")
@@ -2294,6 +2684,13 @@ def scenario_adblock_blocks_ads(s: RpaSession) -> ScenarioResult:
                 )
             except Exception:  # noqa: BLE001
                 pass
+        # Scenario-scoped HAR from this fixture run's JSONL (suite HAR remains network.har).
+        try:
+            from network_har import write_har_from_jsonl
+
+            write_har_from_jsonl(log_path, s.out_dir / "network-adblock_blocks_ads.har")
+        except Exception:  # noqa: BLE001
+            pass
 
         enough_blocks = len(hit_hosts) >= 3
         steps.append(
@@ -2380,6 +2777,18 @@ def scenario_adblock_blocks_ads(s: RpaSession) -> ScenarioResult:
             os.environ.pop("VOID_ADBLOCK_DEBUG_LOG", None)
         else:
             os.environ["VOID_ADBLOCK_DEBUG_LOG"] = prev_log
+        if prev_net is None:
+            os.environ.pop("VOID_NETWORK_CAPTURE", None)
+        else:
+            os.environ["VOID_NETWORK_CAPTURE"] = prev_net
+        if prev_net_log is None:
+            os.environ.pop("VOID_NETWORK_CAPTURE_LOG", None)
+        else:
+            os.environ["VOID_NETWORK_CAPTURE_LOG"] = prev_net_log
+        if prev_har is None:
+            os.environ.pop("VOID_NETWORK_HAR_PATH", None)
+        else:
+            os.environ["VOID_NETWORK_HAR_PATH"] = prev_har
         try:
             if s.alive():
                 s.stop()
@@ -2395,6 +2804,7 @@ SCENARIOS: dict[str, Callable[[RpaSession], ScenarioResult]] = {
     "smoke_navigate": scenario_smoke_navigate,
     "nav_history": scenario_nav_history,
     "visit_void_site": scenario_visit_void_site,
+    "void_xp_desktop": scenario_void_xp_desktop,
     "settings_preserves_tab": scenario_settings_preserves_tab,
     "new_tab": scenario_new_tab,
     "youtube_signin_page": scenario_youtube_signin_page,
@@ -2454,7 +2864,7 @@ def _run_scenario_with_timeout(
 
 
 DEFAULT_SCENARIOS = (
-    "download_install,app_launch,smoke_navigate,nav_history,visit_void_site,"
+    "download_install,app_launch,smoke_navigate,nav_history,visit_void_site,void_xp_desktop,"
     "settings_preserves_tab,new_tab,youtube_signin_page,context_menu,"
     "adblock_blocks_ads,auto_update"
 )
@@ -2722,10 +3132,17 @@ def write_report(out_dir: Path, exe: Path, results: list[ScenarioResult], meta: 
         ],
         "agent_review_hints": [
             "Read this report.json and open each *.png with the Read tool (vision).",
+            "On FAILED scenarios: also review network.har / network-summary.json / network-<scenario>.har "
+            "for failed requests (status>=400 except expected 403 blocks), unexpected allowed trackers, "
+            "and about:blank / empty document navigations correlating with blank screenshots.",
+            "HAR is Void-synthesized HAR 1.2 from WebResourceRequested + navigation decisions "
+            "(not Chromium DevTools). Custom _void.decision / _void.filter / _void.resourceType fields.",
             "File bugs for failed scenarios or visually broken screenshots.",
             "FAIL HARD on blank/white content area or settings wiping the tab.",
             "download_install: confirm downloads/rpa has portable+setup; dist staged.",
-            "visit_void_site: confirm VOID hero on LAN :5080 + Get Void buttons; public URL is optional/CF-ok.",
+            "visit_void_site: LAN ?skip=1 XP desktop — Start/taskbar, Void Browser icon, "
+            "Welcome/Get Void CTAs, Download window + releases.json buttons; screenshots.",
+            "void_xp_desktop: bare URL → Esc lands desktop; soft easter (Recycle Bin / cmd).",
             "settings_preserves_tab: confirm the site content returns after Esc/Done.",
             "youtube_signin_page: confirm Google sign-in UI is visible (not a Void block / New Tab). "
             "soft_fail is OK for live Google WebView2 challenges after navigation leaves Void home.",
@@ -2766,6 +3183,19 @@ def main() -> int:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     out_dir = Path(args.out) if args.out else DEFAULT_ARTIFACTS / stamp
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Suite-wide network capture → artifacts/rpa/<stamp>/network.har (+ JSONL).
+    # Opt out with VOID_RPA_NETWORK_CAPTURE=0.
+    network_meta: dict[str, Any] = {}
+    if os.environ.get("VOID_RPA_NETWORK_CAPTURE", "1").strip() not in ("0", "false", "no"):
+        try:
+            network_meta = enable_suite_capture(out_dir)
+            print(
+                f"Network capture: har={network_meta.get('har')} jsonl={network_meta.get('jsonl')}",
+                flush=True,
+            )
+        except Exception as e:  # noqa: BLE001
+            print(f"Network capture enable soft-fail: {e}", flush=True)
 
     # download_install can bootstrap when no exe exists yet.
     exe: Optional[Path] = None
@@ -2888,6 +3318,14 @@ def main() -> int:
             results.append(result)
             status = "PASS" if result.ok else "FAIL"
             print(f"  {status} ({result.duration_sec:.1f}s)", flush=True)
+            try:
+                # Rebuild suite HAR from JSONL then snapshot per-scenario copy.
+                finalize_suite_capture(out_dir, scenario_names=names)
+                snap = copy_scenario_har(out_dir, name)
+                if snap is not None:
+                    print(f"  network har snapshot: {snap.name}", flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"  network har snapshot soft-fail: {e}", flush=True)
 
             # After hard-timeout / crash, relaunch so later scenarios are not dead.
             if (
@@ -2970,6 +3408,27 @@ def main() -> int:
             teardown = {"ok": False, "detail": str(e), "commands": []}
             print(f"  FAIL: teardown uninstall error: {e}", flush=True)
         try:
+            net_final: dict[str, Any] = {}
+            if os.environ.get("VOID_RPA_NETWORK_CAPTURE", "1").strip() not in (
+                "0",
+                "false",
+                "no",
+            ):
+                try:
+                    net_final = finalize_suite_capture(
+                        out_dir,
+                        scenario_names=[
+                            n.strip() for n in args.scenarios.split(",") if n.strip()
+                        ],
+                    )
+                    print(
+                        f"Network HAR: {net_final.get('har')} "
+                        f"(entries={net_final.get('entries')}, "
+                        f"blocked={net_final.get('blocked')})",
+                        flush=True,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    print(f"Network HAR finalize soft-fail: {e}", flush=True)
             report_path = write_report(
                 out_dir,
                 current_exe or Path("unknown"),
@@ -2982,6 +3441,7 @@ def main() -> int:
                     ],
                     "download_dir": str(DEFAULT_DOWNLOAD_DIR),
                     "teardown_uninstall": teardown,
+                    "network_capture": {**network_meta, **net_final},
                 },
             )
             print(f"Report: {report_path}", flush=True)

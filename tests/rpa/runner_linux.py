@@ -32,6 +32,12 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from network_har import (  # noqa: E402
+    copy_scenario_har,
+    enable_suite_capture,
+    finalize_suite_capture,
+)
 DEFAULT_ARTIFACTS = ROOT / "artifacts" / "rpa"
 DEFAULT_DOWNLOAD_DIR = Path(
     os.environ.get("VOID_RPA_DOWNLOAD_DIR", str(ROOT / "downloads" / "rpa"))
@@ -468,6 +474,16 @@ class LinuxRpaSession:
         # Skip clear_on_exit under RPA so sessions survive kill/relaunch.
         if os.environ.get("VOID_DISABLE_CLEAR_ON_EXIT", "1").strip() != "0":
             env["VOID_DISABLE_CLEAR_ON_EXIT"] = "1"
+        for key in (
+            "VOID_NETWORK_CAPTURE",
+            "VOID_NETWORK_CAPTURE_LOG",
+            "VOID_NETWORK_HAR_PATH",
+            "VOID_ADBLOCK_DEBUG",
+            "VOID_ADBLOCK_DEBUG_LOG",
+        ):
+            val = os.environ.get(key, "").strip()
+            if val:
+                env[key] = val
         return env
 
     def stop(self) -> None:
@@ -1657,6 +1673,18 @@ def main() -> int:
     out_dir = Path(args.out) / stamp
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    network_meta: dict[str, Any] = {}
+    if os.environ.get("VOID_RPA_NETWORK_CAPTURE", "1").strip() not in ("0", "false", "no"):
+        try:
+            network_meta = enable_suite_capture(out_dir)
+            print(
+                f"[rpa-linux] network capture har={network_meta.get('har')}",
+                flush=True,
+            )
+        except Exception as e:  # noqa: BLE001
+            print(f"[rpa-linux] network capture soft-fail: {e}", flush=True)
+
+
     appimage = Path(args.appimage) if args.appimage else find_existing_appimage()
     need_download_first = appimage is None or "download_install" in names
 
@@ -1732,6 +1760,13 @@ def main() -> int:
             else:
                 mark = "PASS" if result.ok else "FAIL"
             print(f"  {mark} {name} ({result.duration_sec:.1f}s) {result.error or ''}", flush=True)
+            try:
+                finalize_suite_capture(out_dir, scenario_names=names)
+                snap = copy_scenario_har(out_dir, name)
+                if snap is not None:
+                    print(f"  network har snapshot: {snap.name}", flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"  network har soft-fail: {e}", flush=True)
             if result.new_exe:
                 session.appimage = Path(result.new_exe)
                 session.exe = session.appimage
@@ -1758,17 +1793,44 @@ def main() -> int:
     teardown_ok = bool(teardown.get("ok", True))
     overall = hard_ok and teardown_ok
 
+    net_final: dict[str, Any] = {}
+    try:
+        if os.environ.get("VOID_RPA_NETWORK_CAPTURE", "1").strip() not in (
+            "0",
+            "false",
+            "no",
+        ):
+            net_final = finalize_suite_capture(
+                out_dir,
+                scenario_names=[n.strip() for n in args.scenarios.split(",") if n.strip()],
+            )
+            print(
+                f"[rpa-linux] network HAR entries={net_final.get('entries')} "
+                f"blocked={net_final.get('blocked')}",
+                flush=True,
+            )
+    except Exception as e:  # noqa: BLE001
+        print(f"[rpa-linux] network HAR finalize soft-fail: {e}", flush=True)
+
     report = {
         "ok": overall,
         "platform": "linux",
         "stamp": stamp,
         "scenarios": [asdict(r) for r in results],
+        "agent_review_hints": [
+            "Read report.json and each *.png with vision.",
+            "On FAILED scenarios: review network.har / network-summary.json for failed "
+            "requests, unexpected allowed trackers, and blank/about:blank navigations.",
+            "Linux HAR is best-effort (main-frame navigation decisions); Windows has "
+            "full WebResourceRequested subresource capture.",
+        ],
         "meta": {
             "appimage": str(appimage) if appimage else None,
             "display": os.environ.get("DISPLAY", ""),
             "soft_fail_scenarios": soft_fail_names,
             "teardown_uninstall": teardown,
             "default_scenarios": DEFAULT_SCENARIOS,
+            "network_capture": {**network_meta, **net_final},
         },
     }
     report_path = out_dir / "report.json"

@@ -80,6 +80,17 @@ impl AdBlocker {
 
     /// Check with an adblock-rust resource type (`script`, `image`, `document`, …).
     pub fn check_typed(&self, url: &str, source_url: &str, resource_type: &str) -> MatchResult {
+        self.check_typed_method(url, source_url, resource_type, "GET")
+    }
+
+    /// Like [`Self::check_typed`], but records the HTTP method into the network/HAR log.
+    pub fn check_typed_method(
+        &self,
+        url: &str,
+        source_url: &str,
+        resource_type: &str,
+        method: &str,
+    ) -> MatchResult {
         self.total_checked.fetch_add(1, Ordering::Relaxed);
 
         let Ok(request) = Request::new(url, source_url, resource_type) else {
@@ -87,7 +98,15 @@ impl AdBlocker {
                 matched: false,
                 filter: None,
             };
-            adblock_debug::record(url, source_url, resource_type, false, None);
+            adblock_debug::record_ex(
+                url,
+                source_url,
+                resource_type,
+                method,
+                false,
+                None,
+                None,
+            );
             return result;
         };
         let result = self.engine.check_network_request(&request);
@@ -96,12 +115,14 @@ impl AdBlocker {
             self.total_blocked.fetch_add(1, Ordering::Relaxed);
         }
 
-        adblock_debug::record(
+        adblock_debug::record_ex(
             url,
             source_url,
             resource_type,
+            method,
             result.matched,
             result.filter.clone(),
+            if result.matched { Some(403) } else { None },
         );
 
         MatchResult {

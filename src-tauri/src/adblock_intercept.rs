@@ -97,7 +97,7 @@ fn handle_request(
         return;
     };
 
-    let (url, resource_type) = unsafe {
+    let (url, resource_type, method) = unsafe {
         let Ok(req) = args.Request() else {
             return;
         };
@@ -107,10 +107,17 @@ fn handle_request(
         }
         let url = take_pwstr(uri);
 
+        let mut method_pw = PWSTR::null();
+        let method = if req.Method(&mut method_pw).is_ok() {
+            take_pwstr(method_pw)
+        } else {
+            "GET".to_string()
+        };
+
         let mut ctx = COREWEBVIEW2_WEB_RESOURCE_CONTEXT::default();
         let _ = args.ResourceContext(&mut ctx);
         let resource_type = map_resource_context(ctx);
-        (url, resource_type)
+        (url, resource_type, method)
     };
 
     // Only decide on real network schemes; leave custom protocols to wry/tauri.
@@ -146,9 +153,9 @@ fn handle_request(
         return;
     };
 
-    let result = engine.check_typed(&url, &source_url, resource_type);
+    let result = engine.check_typed_method(&url, &source_url, resource_type, &method);
     if !result.matched {
-        // Avoid emitting on every allowed request (high volume); debug log still records.
+        // Allowed: already in decision log / HAR; avoid synthetic response.
         return;
     }
 

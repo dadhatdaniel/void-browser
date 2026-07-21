@@ -122,7 +122,8 @@ What it does:
 | `app_launch` | Process alive, window ≥640×480, chrome/content not blank/white |
 | `smoke_navigate` | example.com + duckduckgo; **fail hard** if content area is blank/white |
 | `nav_history` | Address-bar nav, Alt+Left back, Alt+Right forward, F5 reload; blank fail |
-| `visit_void_site` | **LAN** `http://10.0.0.10:5080/` hero → scroll → `#download`; optional public URL |
+| `visit_void_site` | **LAN** XP theatrical site via `?skip=1`: desktop + Start/taskbar, Void Browser icon, Welcome/Get Void CTAs, Download window + `releases.json` buttons; screenshots; optional public URL |
+| `void_xp_desktop` | Bare LAN URL → **Esc** lands on desktop; soft easter (Recycle Bin dblclick or Start → Command Prompt) |
 | `settings_preserves_tab` | open site → Settings (Ctrl+,) overlay → Esc; **fail hard** if tab wiped to blank |
 | `new_tab` | Ctrl+T second tab; Ctrl+Shift+Tab switch back; blank fail |
 | `youtube_signin_page` | Load `accounts.google.com/signin` (retries + new tab); **hard fail** if stuck on Void New Tab; **soft_fail** if navigated but live Google/WebView2 challenge hides classic white card |
@@ -167,11 +168,12 @@ Overrides:
 - Override URLs with `VOID_RPA_PORTABLE_URL` / `VOID_RPA_SETUP_URL` / `VOID_RELEASES_JSON_URL` if needed.
 - Set `VOID_RPA_RUN_NSIS=1` explicitly if needed; `VOID_RPA_SKIP_NSIS=1` forces portable-only.
 
-`visit_void_site` dogfoods the marketing site inside Void Browser itself.
+`visit_void_site` dogfoods the XP theatrical marketing site inside Void Browser itself.
 
-- **Primary:** `http://10.0.0.10:5080/` (Unraid nginx) — avoids Cloudflare bot challenges.
+- **Primary (CI-stable):** `http://10.0.0.10:5080/?skip=1` — skips BIOS/load/login; asserts desktop, Start, Void Browser, Welcome/Get Void, Download/`releases.json`.
+- **Boot path:** `void_xp_desktop` opens bare `:5080/` then Esc → desktop; soft easter egg.
 - **Optional:** `https://void.lightfoot.cloud/` — soft check (`allow_failure`); CF challenge does not fail the suite.
-- Override with `VOID_SITE_LAN_URL` / `VOID_SITE_PUBLIC_URL` env vars if needed.
+- Override with `VOID_SITE_LAN_URL` / `VOID_SITE_LAN_SKIP_URL` / `VOID_SITE_PUBLIC_URL` if needed.
 
 Optional Google login (local/CI secrets only — never commit):
 
@@ -184,30 +186,60 @@ $env:VOID_TEST_GOOGLE_PASS = "..."
 
 ```
 artifacts/rpa/<YYYYMMDD_HHMMSS>/
-  report.json          # machine-readable steps + pass/fail
+  report.json            # machine-readable steps + pass/fail
+  network.har            # HAR 1.2 (suite-wide; synthesized from Void decision log)
+  network.jsonl          # raw decision stream (JSONL)
+  network.json           # capped live snapshot
+  network-summary.json   # blocked/allowed counts + review hints
+  network-<scenario>.har # optional per-scenario snapshot after each scenario
   01_....png
   02_...
 ```
 
+Unraid mirror (unchanged): full stamp tree including HAR/JSONL →
+`/mnt/user/appdata/void-rpa-artifacts/<stamp>/` (Windows) or `linux-<stamp>/`.
 
-### Adblock scenario (\dblock_blocks_ads\)
+### Network HAR capture (all RPA scenarios)
 
-WebView2 does not expose a reliable HAR export to RPA. Instead Void writes a
-**network decision log** when \VOID_ADBLOCK_DEBUG=1\:
+WebView2 does not expose a reliable Chromium DevTools HAR export to RPA.
+Void synthesizes **HAR 1.2-compatible** JSON from the same stream used for
+adblock diagnosis:
 
-1. Relaunches Void with debug logging pointed at the artifact dir.
-2. Serves \	ests/fixtures/adblock/\ on W.0.0.1:<ephemeral>\.
+| Env | Role |
+|-----|------|
+| `VOID_RPA_NETWORK_CAPTURE=1` | Suite default (set `0` to opt out) |
+| `VOID_NETWORK_CAPTURE=1` | Enables capture inside Void |
+| `VOID_NETWORK_CAPTURE_LOG` | JSONL path (suite: `network.jsonl`) |
+| `VOID_NETWORK_HAR_PATH` | Live/final HAR path (suite: `network.har`) |
+| `VOID_ADBLOCK_DEBUG=1` | Legacy alias; still enables the same logger |
+
+**Windows (primary):** `WebResourceRequested` + main-frame navigation decisions
+(method, URL, resource type, blocked/allowed, filter). Blocked → HAR `status` 403;
+allowed → `status` 0 (real HTTP status unknown without CDP). Custom `_void.*` fields
+carry decision/filter/resourceType/sourceUrl.
+
+**Linux (best-effort):** no WebResourceRequested hook; capture is mainly
+document navigations that hit the adblock engine. Suite still writes `network.har`.
+
+Harness rebuilds `network.har` from the full JSONL at suite end (and snapshots
+`network-<scenario>.har` after each scenario).
+
+### Adblock scenario (`adblock_blocks_ads`)
+
+1. Temporarily redirects capture to a fixture-scoped JSONL under the artifact dir.
+2. Serves `tests/fixtures/adblock/` on `127.0.0.1:<ephemeral>`.
 3. Navigates to the fixture (passive fake ad/tracker URLs matching EasyList patterns).
-4. Asserts >=3 expected ad hosts are \locked\ in the log, and the fixture page still paints.
-5. Writes etwork-log.json\ for diagnosis (not a Chromium HAR).
+4. Asserts >=3 expected ad hosts are `blocked` in the log, and the fixture page still paints.
+5. Writes `network-log.json` + `network-adblock_blocks_ads.har` for diagnosis.
 
-\\powershell
-.\\scripts\\run-rpa-windows.ps1 -Build -Scenarios adblock_blocks_ads
+```powershell
+.\scripts\run-rpa-windows.ps1 -Build -Scenarios adblock_blocks_ads
 # or remote:
-.\\scripts\\rpa-remote-run.ps1 -SyncRepo -Scenarios adblock_blocks_ads
-\
-Requires a build that includes WebView2 \WebResourceRequested\ interception (this
-fix). Older portables will produce an empty log and fail with a rebuild hint.
+.\scripts\rpa-remote-run.ps1 -SyncRepo -Scenarios adblock_blocks_ads
+```
+
+Requires a build that includes WebView2 `WebResourceRequested` interception.
+Older portables will produce an empty log and fail with a rebuild hint.
 
 After a remote run, the same tree appears under the local repo (and optionally
 `Z:\void-rpa-artifacts\<stamp>\`).
@@ -221,11 +253,15 @@ near-zero variance → step fails; settings wipe → suite fails.
 
 After an RPA run (or CI artifact download):
 
-1. Find latest dir: `artifacts/rpa/*/` (or CI download).
+1. Find latest dir: `artifacts/rpa/*/` (or Unraid mirror / CI download).
 2. Read `report.json`.
 3. **Read each `*.png` with the Read tool** (vision) — do not rely on filenames alone.
-4. File bugs for failed steps or visually broken UI (blank content, settings killed the tab, Google block page, etc.).
-5. Fix → rebuild / publish → refresh VM `dist\void-browser.exe` → re-run:
+4. On **FAILED** scenarios: also review `network.har` / `network-summary.json` /
+   `network-<scenario>.har` for failed requests (`status>=400` except expected 403
+   blocks), unexpected **allowed** trackers, and `about:blank` / empty document
+   navigations that correlate with blank screenshots.
+5. File bugs for failed steps or visually broken UI (blank content, settings killed the tab, Google block page, etc.).
+6. Fix → rebuild / publish → refresh VM `dist\void-browser.exe` → re-run:
 
 ```powershell
 .\scripts\rpa-remote-run.ps1 -DownloadInstall -Scenarios <failed>
@@ -233,7 +269,9 @@ After an RPA run (or CI artifact download):
 
 Suggested agent prompt:
 
-> Review `artifacts/rpa/<stamp>/report.json` and all PNGs. Summarize failures and open fixes for settings/YouTube/navigation/updater regressions.
+> Review `artifacts/rpa/<stamp>/report.json`, all PNGs, and `network.har` /
+> `network-summary.json`. Summarize failures (UI + network) and open fixes for
+> settings/YouTube/navigation/updater/adblock regressions.
 
 ## CI
 
@@ -278,7 +316,7 @@ Guest: `void-test-linux` / `rpa-linux` @ **`10.0.1.114`**. VNC diagnose: `http:/
 | `main` push | `sync-rpa-linux-repo` (stage `sync`, before `rpa`) refreshes `/home/rpa-linux/void-browser` |
 
 Default scenarios (Windows-parity names):
-`download_install,app_launch,smoke_navigate,nav_history,visit_void_site,settings_preserves_tab,new_tab,youtube_signin_page,context_menu,auto_update`
+`download_install,app_launch,smoke_navigate,nav_history,visit_void_site,void_xp_desktop,settings_preserves_tab,new_tab,youtube_signin_page,context_menu,auto_update`
 
 | Windows | Linux |
 |---------|--------|

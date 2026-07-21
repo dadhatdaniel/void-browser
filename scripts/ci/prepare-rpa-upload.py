@@ -73,6 +73,11 @@ def main() -> int:
         print(f"Missing {report_src}", file=sys.stderr)
         return 1
     shutil.copy2(report_src, dest / "report.json")
+    for extra in ("network.har", "network-summary.json", "network.jsonl"):
+        srcf = stamp / extra
+        if srcf.is_file():
+            shutil.copy2(srcf, dest / extra)
+            print(f"  copied {extra} ({srcf.stat().st_size} bytes)")
     (dest / "SOURCE_STAMP.txt").write_text(stamp.name + "\n", encoding="utf-8")
 
     total = (dest / "report.json").stat().st_size
