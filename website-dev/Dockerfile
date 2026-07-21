@@ -3,6 +3,8 @@ FROM nginx:alpine
 # Experimental Void marketing theme — LAN preview only (:5081)
 COPY index.html /usr/share/nginx/html/
 COPY style.css /usr/share/nginx/html/
+COPY app.js /usr/share/nginx/html/
+COPY bliss-homage.jpg /usr/share/nginx/html/
 COPY robots.txt /usr/share/nginx/html/
 COPY sitemap.xml /usr/share/nginx/html/
 COPY ai.txt /usr/share/nginx/html/

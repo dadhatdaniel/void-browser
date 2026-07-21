@@ -2,25 +2,16 @@
 
 This directory is a **local/LAN-only** marketing theme preview.
 
-- **Prod (unchanged):** `website/` → `http://10.0.0.10:5080/` (`void-website`)
+- **Prod:** `website/` → `http://10.0.0.10:5080/` / `https://void.lightfoot.cloud`
 - **Dev preview:** `website-dev/` → `http://10.0.0.10:5081/` (`void-website-dev`)
 
-Do **not** point Cloudflare / public DNS at :5081. Promote to prod only after explicit approval.
+## Theme (VOID OS theatrical boot)
 
-## Deploy / refresh on Unraid
+1. **VOID BIOS / POST** — slow, readable XP-era text POST
+2. **VOID OS loading** — Bliss-style homage wallpaper (local `bliss-homage.jpg`)
+3. **Login** — Guest logon
+4. **Desktop** — Luna chrome, Start button, Void Browser mini-app, easter eggs
 
-```bash
-cd /mnt/user/appdata/openclaw-localai/workspace/void-browser
-docker build --pull=false -t void-website-dev ./website-dev
-docker stop void-website-dev 2>/dev/null || true
-docker rm void-website-dev 2>/dev/null || true
-docker run -d --name void-website-dev --restart unless-stopped \
-  -p 5081:80 --network proxynet --memory=128m \
-  --security-opt no-new-privileges:true void-website-dev
-```
+Skip: **Esc**, click advances BIOS/load, Enter on login. Also `?skip=1`, `?boot=0`, `#desktop`.
 
-## Theme notes
-
-- Honest wrapper story (WebView2 / WebKit) front and center
-- 90s **color-wave** energy — not Geocities kitsch
-- Keeps `releases.json` download wiring, OS icons, tip link, Efficiency/Performance
+Not affiliated with Microsoft. Honest wrapper marketing stays intact.

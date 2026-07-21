@@ -3,6 +3,8 @@ FROM nginx:alpine
 # Copy website assets
 COPY index.html /usr/share/nginx/html/
 COPY style.css /usr/share/nginx/html/
+COPY app.js /usr/share/nginx/html/
+COPY bliss-homage.jpg /usr/share/nginx/html/
 COPY robots.txt /usr/share/nginx/html/
 COPY sitemap.xml /usr/share/nginx/html/
 COPY ai.txt /usr/share/nginx/html/
@@ -37,7 +39,7 @@ server {
     add_header X-XSS-Protection "1; mode=block" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=(), interest-cohort=()" always;
-    add_header Content-Security-Policy "default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://img.shields.io https://github.com; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
+    add_header Content-Security-Policy "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.bunny.net; font-src 'self' https://fonts.bunny.net; img-src 'self' data: https://img.shields.io https://github.com; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
     add_header X-Permitted-Cross-Domain-Policies "none" always;
     # Avoid COEP require-corp — it breaks shields.io badges and other cross-origin assets
     add_header Cross-Origin-Opener-Policy "same-origin" always;
@@ -85,7 +87,7 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
-    # Cache static assets (include webmanifest)
+    # Cache static assets (include webmanifest + wallpaper)
     location ~* \.(css|js|png|jpg|ico|svg|woff2?|webmanifest)$ {
         expires 30d;
         add_header Cache-Control "public, immutable";
