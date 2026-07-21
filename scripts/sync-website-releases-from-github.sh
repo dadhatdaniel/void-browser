@@ -75,6 +75,30 @@ installer_asset_count() {
     /tmp/gh-rel.json
 }
 
+# IMPORTANT: bash single quotes preserve backslashes literally.
+# Use '\.deb$' (one backslash) so jq --arg gets regex \.deb$ (literal dot).
+# '\\.deb$' would pass \\.deb$ and look for a literal backslash — matching 0 files.
+pick_asset() {
+  local regex="$1"
+  jq -r --arg re "$regex" '
+    .assets[]
+    | select(.name | test($re))
+    | {name, url: .browser_download_url, size}
+  ' /tmp/gh-rel.json | jq -s '.[0] // empty'
+}
+
+# Mapped website keys (deb/AppImage/setup.exe/dmg) — not raw installer_asset_count.
+# Count alone is insufficient: pick_asset regex bugs can see N installers and map 0.
+mapped_asset_count() {
+  local n=0
+  for re in '\.deb$' '\.AppImage$' 'setup\.exe$|_x64-setup\.exe$' '\.dmg$'; do
+    if [[ -n "$(pick_asset "$re")" ]]; then
+      n=$((n + 1))
+    fi
+  done
+  echo "$n"
+}
+
 # Initial fetch + optional wait for GHA to publish installers after a tag.
 elapsed=0
 until fetch_release; do
@@ -90,15 +114,16 @@ done
 if [[ "$WAIT_ASSETS_SEC" -gt 0 ]]; then
   while true; do
     count="$(installer_asset_count)"
-    if [[ "$count" -gt 0 ]]; then
-      echo "[sync] Release $TAG has $count installer asset(s)"
+    mapped="$(mapped_asset_count)"
+    if [[ "$count" -gt 0 && "$mapped" -gt 0 ]]; then
+      echo "[sync] Release $TAG has $count installer asset(s) ($mapped mapped for website)"
       break
     fi
     if [[ "$elapsed" -ge "$WAIT_ASSETS_SEC" ]]; then
-      echo "[sync] ERROR: release $TAG still has no installer assets after ${elapsed}s" >&2
+      echo "[sync] ERROR: release $TAG still has no mappable installer assets after ${elapsed}s (raw=$count mapped=$mapped)" >&2
       exit 1
     fi
-    echo "[sync] Waiting for installer assets on $TAG — sleep ${WAIT_ASSETS_INTERVAL}s (${elapsed}/${WAIT_ASSETS_SEC}s)"
+    echo "[sync] Waiting for installer assets on $TAG — sleep ${WAIT_ASSETS_INTERVAL}s (${elapsed}/${WAIT_ASSETS_SEC}s raw=$count mapped=$mapped)"
     sleep "$WAIT_ASSETS_INTERVAL"
     elapsed=$((elapsed + WAIT_ASSETS_INTERVAL))
     fetch_release || true
@@ -107,15 +132,6 @@ fi
 
 VERSION="${TAG#v}"
 PUBLISHED="$(jq -r '.published_at // .created_at' /tmp/gh-rel.json | cut -c1-10)"
-
-pick_asset() {
-  local regex="$1"
-  jq -r --arg re "$regex" '
-    .assets[]
-    | select(.name | test($re))
-    | {name, url: .browser_download_url, size}
-  ' /tmp/gh-rel.json | jq -s '.[0] // empty'
-}
 
 size_label() {
   local bytes="${1:-0}"
@@ -163,10 +179,13 @@ jq -n \
     assets: {}
   }' > "$OUT"
 
-add_from_pick "linux_deb" "$(pick_asset '\\.deb$')"
-add_from_pick "linux_appimage" "$(pick_asset '\\.AppImage$')"
-add_from_pick "windows_exe" "$(pick_asset 'setup\\.exe$|_x64-setup\\.exe$')"
-add_from_pick "macos_dmg" "$(pick_asset '\\.dmg$')"
+# IMPORTANT: bash single quotes preserve backslashes literally.
+# Use '\.deb$' (one backslash) so jq --arg gets regex \.deb$ (literal dot).
+# '\\.deb$' would pass \\.deb$ and look for a literal backslash — matching 0 files.
+add_from_pick "linux_deb" "$(pick_asset '\.deb$')"
+add_from_pick "linux_appimage" "$(pick_asset '\.AppImage$')"
+add_from_pick "windows_exe" "$(pick_asset 'setup\.exe$|_x64-setup\.exe$')"
+add_from_pick "macos_dmg" "$(pick_asset '\.dmg$')"
 
 COUNT="$(jq '.assets | length' "$OUT")"
 echo "[sync] wrote $OUT for $TAG ($COUNT asset(s))"
