@@ -23,8 +23,9 @@
 #   AUTO on schedule / API (SYNC_RELEASES=1):
 #     sync-releases-from-github  — sole owner of website/releases.json sync
 #   AUTO on API (RPA_AFTER_RELEASE=1):
-#     rpa-windows + rpa-linux only (all other jobs skipped;
-#     VM sync jobs are skipped — rpa-* still --sync-repo themselves)
+#     rpa-win-start + rpa-windows + rpa-linux (+ rpa-win-stop unless KEEP_RPA_VM=1)
+#     VM sync jobs are skipped — rpa-* still --sync-repo themselves
+#   KEEP_RPA_VM=1 (pipeline variable): leave void-rpa-windows running after rpa-windows.
 #   OPTIONAL jobs (created only when vars/rules match — no always-on Play stubs):
 #     deploy-site          — DEPLOY_SITE=1 (Run pipeline)
 #     rpa-windows/linux    — RUN_RPA=1 or RUN_RPA_WINDOWS=1 / RUN_RPA_LINUX=1
@@ -518,13 +519,30 @@ virus-scan:
 #   VOID_RPA_WIN_USER  — default rpa-win
 #   VOID_RPA_WIN_HOST  — default 10.0.0.28
 # Guest needs Active console (rpa-win Autologon after reboot — VNC viewer not required).
+# Docker rpa-windows cannot call virsh. unraid-shell rpa-win-start/stop power the VM.
+# KEEP_RPA_VM=1 skips rpa-win-stop. rpa-winrm.py also starts/stops when virsh is on PATH.
+
+rpa-win-start:
+  stage: sync
+  tags:
+    - unraid-shell
+  needs: []
+  timeout: 15m
+  script:
+    - bash scripts/ci/rpa-vm-power.sh start
+  rules:
+    - if: $RPA_AFTER_RELEASE == "1"
+    - if: $RUN_RPA == "1"
+    - if: $RUN_RPA_WINDOWS == "1"
+    - if: $CI_COMMIT_BRANCH == "main" && $RPA_AFTER_RELEASE != "1"
 
 rpa-windows:
   stage: rpa
   image: python:3.12-slim
-  # Wait for VM git sync when present; optional so RPA_AFTER_RELEASE=1
-  # (sync jobs skipped) still starts immediately. Sync has allow_failure.
+  # Wait for VM power-on + git sync when present; optional sync so
+  # RPA_AFTER_RELEASE=1 (sync jobs skipped) still starts immediately.
   needs:
+    - job: rpa-win-start
     - job: sync-rpa-win-repo
       optional: true
   timeout: 2h
@@ -709,7 +727,8 @@ rpa-linux:
 sync-rpa-win-repo:
   stage: sync
   image: python:3.12-slim
-  needs: []
+  needs:
+    - job: rpa-win-start
   allow_failure: true
   variables:
     VOID_RPA_WIN_HOST: "10.0.0.28"
@@ -747,3 +766,27 @@ sync-rpa-linux-repo:
       python3 scripts/ci/rpa-ssh.py --sync-repo-only
   rules:
     - if: $CI_COMMIT_BRANCH == "main" && $RPA_AFTER_RELEASE != "1"
+
+# Power off void-rpa-windows after the Windows RPA suite. Skipped when
+# KEEP_RPA_VM=1 or when rpa-windows itself did not run (sync-only main push).
+rpa-win-stop:
+  stage: notify
+  tags:
+    - unraid-shell
+  when: always
+  allow_failure: true
+  timeout: 10m
+  needs:
+    - job: rpa-windows
+  script:
+    - bash scripts/ci/rpa-vm-power.sh stop
+  rules:
+    - if: $KEEP_RPA_VM == "1"
+      when: never
+    - if: $RPA_AFTER_RELEASE == "1"
+    - if: $RUN_RPA == "1"
+    - if: $RUN_RPA_WINDOWS == "1"
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - website/releases.json
+

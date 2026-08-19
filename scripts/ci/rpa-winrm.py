@@ -6,12 +6,19 @@ Runs from GitLab runners on the LAN that can reach 10.0.0.28:5985.
 Mirrors scripts/rpa-remote-run.ps1: sync repo, schedule interactive RPA,
 wait for done.json, pull artifacts.
 
+When virsh is on PATH (unraid-shell), this script starts libvirt domain
+void-rpa-windows before WinRM. Docker jobs rely on GitLab job rpa-win-start.
+After a full suite, virsh shutdown unless KEEP_RPA_VM=1 / --keep-vm.
+--sync-repo-only and --wait-winrm-only never shut the VM down.
+
 Credentials (never commit):
   VOID_RPA_WIN_HOST  (default 10.0.0.28)
   VOID_RPA_WIN_USER  (default rpa-win)
   VOID_RPA_WIN_PASS  (required)
+  KEEP_RPA_VM=1      leave the VM running after the suite
 
 Usage:
+  python scripts/ci/rpa-winrm.py --wait-winrm-only
   python scripts/ci/rpa-winrm.py --sync-repo-only
   python scripts/ci/rpa-winrm.py --download-install --sync-repo
   python scripts/ci/rpa-winrm.py --download-install --sync-repo --release-tag v0.1.0-alpha.16
@@ -23,17 +30,89 @@ import argparse
 import base64
 import json
 import os
+import shutil
+import socket
+import subprocess
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+LIBVIRT_DOMAIN = os.environ.get("RPA_LIBVIRT_DOMAIN", "void-rpa-windows").strip() or "void-rpa-windows"
 
 DEFAULT_SCENARIOS = (
     "download_install,app_launch,smoke_navigate,nav_history,visit_void_site,void_xp_desktop,"
     "settings_preserves_tab,new_tab,youtube_signin_page,context_menu,auto_update"
 )
+
+
+def keep_rpa_vm() -> bool:
+    return os.environ.get("KEEP_RPA_VM", "").strip().lower() in ("1", "true", "yes")
+
+
+def _virsh(*args: str):
+    exe = shutil.which("virsh")
+    if not exe:
+        return None
+    return subprocess.run([exe, *args], capture_output=True, text=True, timeout=120)
+
+
+def ensure_libvirt_vm_running() -> None:
+    """Start void-rpa-windows when virsh is on PATH (unraid-shell)."""
+    r = _virsh("domstate", LIBVIRT_DOMAIN)
+    if r is None:
+        print(
+            "[rpa] virsh not in PATH (docker runner) — VM start is GitLab job rpa-win-start",
+            flush=True,
+        )
+        return
+    state = (r.stdout or "").strip().lower()
+    print(f"[rpa] libvirt {LIBVIRT_DOMAIN} state={state or (r.stderr or '').strip()}", flush=True)
+    if "running" in state:
+        return
+    print(f"[rpa] virsh start {LIBVIRT_DOMAIN}", flush=True)
+    s = _virsh("start", LIBVIRT_DOMAIN)
+    combined = f"{(s.stdout if s else '')}{(s.stderr if s else '')}".lower()
+    if s is None or (s.returncode != 0 and "already active" not in combined):
+        raise RuntimeError(
+            f"virsh start {LIBVIRT_DOMAIN} failed: {(s.stderr if s else '') or (s.stdout if s else '')}"
+        )
+
+
+def shutdown_libvirt_vm() -> None:
+    if keep_rpa_vm():
+        print("[rpa] KEEP_RPA_VM=1 — leaving VM running", flush=True)
+        return
+    r = _virsh("domstate", LIBVIRT_DOMAIN)
+    if r is None:
+        return
+    state = (r.stdout or "").strip().lower()
+    if "running" not in state:
+        print(f"[rpa] {LIBVIRT_DOMAIN} already {state or 'unknown'}", flush=True)
+        return
+    print(f"[rpa] virsh shutdown {LIBVIRT_DOMAIN}", flush=True)
+    s = _virsh("shutdown", LIBVIRT_DOMAIN)
+    if s and s.returncode != 0:
+        print(f"[rpa] shutdown warning: {s.stderr or s.stdout}", flush=True)
+
+
+def wait_winrm_tcp(*, timeout_sec: int = 300) -> None:
+    host = os.environ.get("VOID_RPA_WIN_HOST", "10.0.0.28").strip() or "10.0.0.28"
+    port = int(os.environ.get("VOID_RPA_WIN_PORT", "5985") or "5985")
+    deadline = time.time() + timeout_sec
+    print(f"[rpa] waiting for WinRM TCP {host}:{port} (max {timeout_sec}s)", flush=True)
+    last = None
+    while time.time() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=3):
+                print(f"[rpa] WinRM TCP open on {host}:{port}", flush=True)
+                return
+        except OSError as e:
+            last = e
+            print(f"[rpa] WinRM wait: {e}", flush=True)
+        time.sleep(5)
+    raise TimeoutError(f"WinRM {host}:{port} did not open within {timeout_sec}s ({last})")
 
 
 def _require_winrm() -> None:
@@ -665,7 +744,6 @@ def wait_for_github_release(tag: str, timeout_sec: int = 1200) -> None:
 
 
 def main() -> int:
-    _require_winrm()
     parser = argparse.ArgumentParser(description="WinRM RPA trigger for rpa-win VM")
     parser.add_argument("--remote-root", default=r"C:\void-browser")
     parser.add_argument("--scenarios", default=DEFAULT_SCENARIOS)
@@ -689,76 +767,95 @@ def main() -> int:
         action="store_true",
         help="Skip suite-startup self-heal (orphans / session / one reboot)",
     )
+    parser.add_argument("--no-start-vm", action="store_true", help="Do not virsh start (already up)")
+    parser.add_argument("--keep-vm", action="store_true", help="Same as KEEP_RPA_VM=1")
+    parser.add_argument("--wait-winrm-only", action="store_true", help="Start VM, wait for TCP 5985, exit")
     args = parser.parse_args()
 
+    if args.keep_vm:
+        os.environ["KEEP_RPA_VM"] = "1"
+
+    if not args.no_start_vm:
+        ensure_libvirt_vm_running()
+    wait_winrm_tcp(timeout_sec=int(os.environ.get("RPA_WINRM_WAIT_SEC", "300")))
+    if args.wait_winrm_only:
+        print("[rpa] WinRM ready")
+        return 0
+
+    _require_winrm()
     sess = session_from_env()
     skip_heal = args.no_self_heal or os.environ.get("VOID_RPA_SKIP_SELF_HEAL", "").strip() in (
         "1",
         "true",
         "yes",
     )
+    do_shutdown = not args.sync_repo_only and not keep_rpa_vm()
 
-    if args.sync_repo_only:
-        sync_repo(sess, args.remote_root)
+    try:
+        if args.sync_repo_only:
+            sync_repo(sess, args.remote_root)
+            if args.push_harness and not args.no_push_harness:
+                push_harness_files(sess, args.remote_root, ROOT)
+            print("[rpa] sync-repo-only done")
+            return 0
+
+        tag = (args.release_tag or "").strip()
+        if args.wait_github or (tag and args.download_install):
+            wait_for_github_release(
+                tag, timeout_sec=int(os.environ.get("RPA_WAIT_GITHUB_SEC", "1200"))
+            )
+
+        if args.sync_repo:
+            sync_repo(sess, args.remote_root)
         if args.push_harness and not args.no_push_harness:
             push_harness_files(sess, args.remote_root, ROOT)
-        print("[rpa] sync-repo-only done")
-        return 0
 
-    tag = (args.release_tag or "").strip()
-    if args.wait_github or (tag and args.download_install):
-        wait_for_github_release(
-            tag, timeout_sec=int(os.environ.get("RPA_WAIT_GITHUB_SEC", "1200"))
+        if not skip_heal:
+            # Reconnect after possible reboot inside self_heal
+            self_heal(sess, allow_reboot=True)
+            sess = session_from_env()
+
+        done = schedule_and_wait(
+            sess,
+            remote_root=args.remote_root,
+            scenarios=args.scenarios,
+            download_install=args.download_install,
+            launch_wait=args.launch_wait,
+            timeout_sec=args.timeout_sec,
+            release_tag=tag,
         )
 
-    if args.sync_repo:
-        sync_repo(sess, args.remote_root)
-    if args.push_harness and not args.no_push_harness:
-        push_harness_files(sess, args.remote_root, ROOT)
+        art = done.get("artifact_dir")
 
-    if not skip_heal:
-        # Reconnect after possible reboot inside self_heal
-        self_heal(sess, allow_reboot=True)
-        sess = session_from_env()
+        def _exit_code() -> int:
+            # Do not use `x or 1` — exit_code 0 is success and must be preserved.
+            ec = done.get("exit_code")
+            return 1 if ec is None else int(ec)
 
-    done = schedule_and_wait(
-        sess,
-        remote_root=args.remote_root,
-        scenarios=args.scenarios,
-        download_install=args.download_install,
-        launch_wait=args.launch_wait,
-        timeout_sec=args.timeout_sec,
-        release_tag=tag,
-    )
+        if not art:
+            print("[rpa] no artifact_dir", file=sys.stderr)
+            return _exit_code()
 
-    art = done.get("artifact_dir")
+        stamp = Path(str(art).replace("\\", "/")).name
+        local_dir = Path(args.out) / stamp
+        pull_artifacts(sess, art, local_dir)
+        mirror_to_unraid(local_dir, stamp)
 
-    def _exit_code() -> int:
-        # Do not use `x or 1` — exit_code 0 is success and must be preserved.
-        ec = done.get("exit_code")
-        return 1 if ec is None else int(ec)
+        report = local_dir / "report.json"
+        if report.is_file():
+            try:
+                data = json.loads(report.read_text(encoding="utf-8"))
+                print(f"[rpa] report ok={data.get('ok')} dir={local_dir}")
+                for sc in data.get("scenarios") or []:
+                    mark = "PASS" if sc.get("ok") else "FAIL"
+                    print(f"  [{mark}] {sc.get('name')} ({sc.get('duration_sec')}s)")
+            except Exception as e:  # noqa: BLE001
+                print(f"[rpa] could not parse report: {e}")
 
-    if not art:
-        print("[rpa] no artifact_dir", file=sys.stderr)
         return _exit_code()
-
-    stamp = Path(str(art).replace("\\", "/")).name
-    local_dir = Path(args.out) / stamp
-    pull_artifacts(sess, art, local_dir)
-    mirror_to_unraid(local_dir, stamp)
-
-    report = local_dir / "report.json"
-    if report.is_file():
-        try:
-            data = json.loads(report.read_text(encoding="utf-8"))
-            print(f"[rpa] report ok={data.get('ok')} dir={local_dir}")
-            for sc in data.get("scenarios") or []:
-                mark = "PASS" if sc.get("ok") else "FAIL"
-                print(f"  [{mark}] {sc.get('name')} ({sc.get('duration_sec')}s)")
-        except Exception as e:  # noqa: BLE001
-            print(f"[rpa] could not parse report: {e}")
-
-    return _exit_code()
+    finally:
+        if do_shutdown:
+            shutdown_libvirt_vm()
 
 
 if __name__ == "__main__":
